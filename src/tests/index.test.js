@@ -133,13 +133,19 @@ describe('serverless-plugin-cloudfront-lambda-edge', function() {
    describe('_getDistributionPhysicalIDs()', function() {
       it('does not call describeStackResource if all pending contain distributionIDs', function() {
          plugin._pendingAssociations = [
-            { distLogicalName: 'WebDist1', distributionID: 'ABC' },
-            { distLogicalName: 'WebDist2', distributionID: 'DEF' },
+            { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist1', distributionID: 'ABC' },
+            { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist2', distributionID: 'DEF' },
          ];
          return plugin._getDistributionPhysicalIDs().then(function(dists) {
             expect(dists).to.eql({
-               WebDist1: 'ABC',
-               WebDist2: 'DEF',
+               'some-fn1': {
+                  distLogicalName: 'WebDist1',
+                  distributionID: 'ABC',
+               },
+               'some-fn2': {
+                  distLogicalName: 'WebDist2',
+                  distributionID: 'DEF',
+               },
             });
             sinon.assert.notCalled(plugin._provider.request);
          });
@@ -147,7 +153,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function() {
 
       it('gets physical id from stack', function() {
          plugin._pendingAssociations = [
-            { distLogicalName: 'WebDist', distributionID: null },
+            { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist', distributionID: null },
          ];
 
          plugin._provider.request.withArgs('CloudFormation', 'describeStackResources', { StackName: 'some-stack' })
@@ -161,7 +167,32 @@ describe('serverless-plugin-cloudfront-lambda-edge', function() {
             });
 
          return plugin._getDistributionPhysicalIDs().then(function(dists) {
-            expect(dists).to.eql({ WebDist: 'ABC123' });
+            expect(dists).to.eql({
+               'some-fn1': {
+                  distLogicalName: 'WebDist',
+                  distributionID: 'ABC123',
+               },
+            });
+         });
+      });
+
+      it('does not call describeStackResource if same dist logical name and dist id are the same for all pending associations', function() {
+         plugin._pendingAssociations = [
+            { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist1', distributionID: 'ABC' },
+            { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist1', distributionID: 'ABC' },
+         ];
+         return plugin._getDistributionPhysicalIDs().then(function(dists) {
+            expect(dists).to.eql({
+               'some-fn1': {
+                  distLogicalName: 'WebDist1',
+                  distributionID: 'ABC',
+               },
+               'some-fn2': {
+                  distLogicalName: 'WebDist1',
+                  distributionID: 'ABC',
+               },
+            });
+            sinon.assert.notCalled(plugin._provider.request);
          });
       });
    });

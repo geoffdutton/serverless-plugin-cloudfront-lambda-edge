@@ -178,7 +178,15 @@ module.exports = Class.extend({
       return Q.all(_.map(dists, this._updateDistributionAsNecessary.bind(this, fns)));
    },
 
+   _distIdIsWaiting: null,
+
    _waitForDistributionDeployed: function(distPhysicalID, distLogicalName) {
+      if (this._distIdIsWaiting) {
+         return Q.resolve();
+      }
+
+      this._distIdIsWaiting = distPhysicalID;
+
       var self = this,
           cloudfront = new this._provider.sdk.CloudFront(this._provider.getCredentials()),
           firstDot = true,
@@ -209,8 +217,11 @@ module.exports = Class.extend({
          }.bind(this));
    },
 
-   _updateDistributionAsNecessary: function(fns, distID, distName) {
-      var self = this;
+   _updateDistributionAsNecessary: function(fns, dist) {
+      var self = this,
+          distID = dist.distributionID,
+          distName = dist.distLogicalName;
+
 
       return this._waitForDistributionDeployed(distID, distName)
          .then(function() {
@@ -316,7 +327,10 @@ module.exports = Class.extend({
 
       existingDistIds = _.reduce(this._pendingAssociations, function(memo, pending) {
          if (pending.distributionID) {
-            memo[pending.distLogicalName] = pending.distributionID;
+            memo[pending.fnLogicalName] = {
+               distributionID: pending.distributionID,
+               distLogicalName: pending.distLogicalName,
+            };
          }
          return memo;
       }, {});
@@ -335,7 +349,10 @@ module.exports = Class.extend({
                   throw new Error('Stack "' + stackName + '" did not have a resource with logical name "' + pending.distLogicalName + '"');
                }
 
-               memo[pending.distLogicalName] = resource.PhysicalResourceId;
+               memo[pending.fnLogicalName] = {
+                  distributionID: resource.PhysicalResourceId,
+                  distLogicalName: pending.distLogicalName,
+               };
 
                return memo;
             }, {});

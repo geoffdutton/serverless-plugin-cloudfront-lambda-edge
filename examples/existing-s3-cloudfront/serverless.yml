@@ -28,12 +28,14 @@ package:
 
 provider:
    name: aws
-   runtime: nodejs6.10 # Because this runs on CloudFront (lambda@edge) it must be 6.10
+   runtime: nodejs8.10
    region: ${self:custom.region}
    stage: ${self:custom.stage}
+   # Fun fact! You have to version functions because Lambda@Edge requires an explicit version rather than $LATEST
+   # versionFunctions: false
 
 functions:
-   addCustomerHeader:
+   addCustomHeader:
       name: '${self:custom.stage}-${self:service}-origin-response'
       handler: handler.handler
       memorySize: 128
@@ -44,3 +46,15 @@ functions:
          # in the AWS Console
          distribution: 'S3-${self:custom.objectPrefix}'
          eventType: 'origin-response'
+
+   addCustomCookie:
+      name: '${self:custom.stage}-${self:service}-viewer-response'
+      handler: handler.cookieSetter
+      memorySize: 128
+      timeout: 1
+      lambdaAtEdge:
+         distributionID: ${self:custom.distributionID}
+         # this is the default format when setting up CloudFront distributions
+         # in the AWS Console
+         distribution: 'S3-${self:custom.objectPrefix}'
+         eventType: 'viewer-response'
