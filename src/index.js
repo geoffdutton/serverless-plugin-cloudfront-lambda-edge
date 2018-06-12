@@ -20,7 +20,7 @@ module.exports = Class.extend({
       'package:function:package': this._onFunctionPackage.bind(this)
     }
   },
-
+  _alreadyWaitingForUpdates: new Set(),
   _onFunctionPackage: function () {
     this._serverless.cli.log('Function being packaged ...')
   },
@@ -218,6 +218,12 @@ module.exports = Class.extend({
     const self = this
     const distID = dist.distributionID
     const distName = dist.distLogicalName
+
+    if (this._alreadyWaitingForUpdates.has(distID + distName)) {
+      return Q.resolve()
+    }
+
+    this._alreadyWaitingForUpdates.add(distID + distName)
 
     return this._waitForDistributionDeployed(distID, distName)
       .then(function () {

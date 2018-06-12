@@ -13,7 +13,7 @@ module.exports = {
     headers['x-serverless-example'] = [
       {
         key: 'X-Serverless-Example',
-        value: 'Existing s3 bucket and clodfront'
+        value: 'Existing s3 bucket and cloudfront'
       }
     ]
 
