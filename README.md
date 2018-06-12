@@ -18,12 +18,8 @@ of CloudFront.
 
 1. CloudFront distributions can take a long time to deploy,
 so you probably want to keep this separate from other "normal" serverless services.
-2. ~~It does not appear that you can delete Lambda@Edge functions because they are replicated.~~ See 'Deleting Functions' below
-You'll see an error like `There was an error deleting this version: Lambda was unable to delete [some function ARN] because it is a replicated function.` Here are a few links about it:
-    * https://stackoverflow.com/questions/45296923/cannot-delete-aws-lambdaedge-replicas
-    * https://forums.aws.amazon.com/thread.jspa?threadID=260242&tstart=0
-
-
+2. ~~It does not appear that you can delete Lambda@Edge functions because they are replicated.
+You'll see an error like `There was an error deleting this version: Lambda was unable to delete [some function ARN] because it is a replicated function.` Here are a few links about it:~~ It appears you can now, see [Deleting Functions](#deleting-functions) below.
 ## How do I use it?
 
 There are three steps:
