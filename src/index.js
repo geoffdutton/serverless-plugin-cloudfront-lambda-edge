@@ -114,36 +114,41 @@ module.exports = Class.extend({
 
       this._pendingAssociations = _.chain(functions)
          .reduce(function(memo, fnDef, fnName) {
-            var distName, evtType, dist;
+            var distName, evtType, dist, distId;
 
             if (!fnDef.lambdaAtEdge) {
                return memo;
             }
 
-            distName = fnDef.lambdaAtEdge.distribution;
+            distId = fnDef.lambdaAtEdge.distributionID || null;
+            distName = fnDef.lambdaAtEdge.distribution || null;
             evtType = fnDef.lambdaAtEdge.eventType;
             dist = template.Resources[distName];
 
-            if (fnDef.lambdaAtEdge) {
-               if (!_.contains(VALID_EVENT_TYPES, evtType)) {
-                  throw new Error('"' + evtType + '" is not a valid event type, must be one of: ' + VALID_EVENT_TYPES.join(', '));
-               }
 
-               if (!dist) {
-                  throw new Error('Could not find resource with logical name "' + distName + '"');
-               }
-
-               if (dist.Type !== 'AWS::CloudFront::Distribution') {
-                  throw new Error('Resource with logical name "' + distName + '" is not type AWS::CloudFront::Distribution');
-               }
-
-               memo.push({
-                  fnLogicalName: self._provider.naming.getLambdaLogicalId(fnName),
-                  distLogicalName: fnDef.lambdaAtEdge.distribution,
-                  fnCurrentVersionOutputName: self._provider.naming.getLambdaVersionOutputLogicalId(fnName),
-                  eventType: evtType,
-               });
+            if (!_.contains(VALID_EVENT_TYPES, evtType)) {
+               throw new Error('"' + evtType + '" is not a valid event type, must be one of: ' + VALID_EVENT_TYPES.join(', '));
             }
+
+            if (!dist && !distId) {
+               throw new Error('Could not find resource with logical name "' + distName + '" or there is no distributionID set');
+            }
+
+            if (!distName && distId) {
+               throw new Error('Distribution ID "' + distId + '" requires a distribution to be set');
+            }
+
+            if (!distId && dist.Type !== 'AWS::CloudFront::Distribution') {
+               throw new Error('Resource with logical name "' + distName + '" is not type AWS::CloudFront::Distribution');
+            }
+
+            memo.push({
+               fnLogicalName: self._provider.naming.getLambdaLogicalId(fnName),
+               distributionID: distId,
+               distLogicalName: distName,
+               fnCurrentVersionOutputName: self._provider.naming.getLambdaVersionOutputLogicalId(fnName),
+               eventType: evtType,
+            });
 
             return memo;
          }, [])
@@ -173,7 +178,15 @@ module.exports = Class.extend({
       return Q.all(_.map(dists, this._updateDistributionAsNecessary.bind(this, fns)));
    },
 
+   _distIdIsWaiting: null,
+
    _waitForDistributionDeployed: function(distPhysicalID, distLogicalName) {
+      if (this._distIdIsWaiting) {
+         return Q.resolve();
+      }
+
+      this._distIdIsWaiting = distPhysicalID;
+
       var self = this,
           cloudfront = new this._provider.sdk.CloudFront(this._provider.getCredentials()),
           firstDot = true,
@@ -183,6 +196,7 @@ module.exports = Class.extend({
          if (running) {
             if (firstDot) {
                self._serverless.cli.log('Waiting for CloudFront distribution "' + distLogicalName + '" to be deployed');
+               self._serverless.cli.log('This can take awhile.');
                firstDot = false;
             }
             self._serverless.cli.printDot();
@@ -203,8 +217,11 @@ module.exports = Class.extend({
          }.bind(this));
    },
 
-   _updateDistributionAsNecessary: function(fns, distID, distName) {
-      var self = this;
+   _updateDistributionAsNecessary: function(fns, dist) {
+      var self = this,
+          distID = dist.distributionID,
+          distName = dist.distLogicalName;
+
 
       return this._waitForDistributionDeployed(distID, distName)
          .then(function() {
@@ -305,7 +322,23 @@ module.exports = Class.extend({
    },
 
    _getDistributionPhysicalIDs: function() {
-      var stackName = this._provider.naming.getStackName();
+      var stackName = this._provider.naming.getStackName(),
+          existingDistIds;
+
+      existingDistIds = _.reduce(this._pendingAssociations, function(memo, pending) {
+         if (pending.distributionID) {
+            memo[pending.fnLogicalName] = {
+               distributionID: pending.distributionID,
+               distLogicalName: pending.distLogicalName,
+            };
+         }
+         return memo;
+      }, {});
+
+      // If they all had distributionIDs, no reason to query CloudFormation
+      if (_.size(existingDistIds) === this._pendingAssociations.length) {
+         return Q.resolve(existingDistIds);
+      }
 
       return this._provider.request('CloudFormation', 'describeStackResources', { StackName: stackName })
          .then(function(resp) {
@@ -316,12 +349,14 @@ module.exports = Class.extend({
                   throw new Error('Stack "' + stackName + '" did not have a resource with logical name "' + pending.distLogicalName + '"');
                }
 
-               memo[pending.distLogicalName] = resource.PhysicalResourceId;
+               memo[pending.fnLogicalName] = {
+                  distributionID: resource.PhysicalResourceId,
+                  distLogicalName: pending.distLogicalName,
+               };
 
                return memo;
             }, {});
          }.bind(this));
    },
-
 
 });

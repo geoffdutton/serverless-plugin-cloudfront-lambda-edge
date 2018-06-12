@@ -44,6 +44,15 @@ function. Unfortunately this means that at times your CloudFront distribution wi
 updated twice in a row - and CloudFront distributions are extremely slow to update
 (approximately 15 minutes for each update). What can you do 🤷?
 
+## A Few Other Things to Keep In Mind
+
+1. As mentioned above, CloudFront distributions can take a long time to deploy,
+so you probably want to keep this separate from other "normal" serverless services.
+2. It does not appear that you can delete Lambda@Edge functions because they are replicated.
+You'll see an error like `There was an error deleting this version: Lambda was unable to delete [some function ARN] because it is a replicated function.` Here are a few links about it:
+    * https://stackoverflow.com/questions/45296923/cannot-delete-aws-lambdaedge-replicas
+    * https://forums.aws.amazon.com/thread.jspa?threadID=260242&tstart=0
+
 
 ## How do I use it?
 
@@ -198,6 +207,17 @@ module.exports = {
 };
 ```
 
+You can find more in the examples directory.
+
+## Plugin V1
+Using serverless/CloudFormation is a little finicky, but it seems to be getting better. For example, when I first forked this repo, I couldn't even manually delete the Lambda@Edge functions. Now you can. There are still some caveats such as sometimes needing to deploy twice (usually when you're changing the function signature or name).
+
+Having said that, it's still much easier to manage than manually doing it all, assuming you have an exisiting CloudFront distribution. If not, just use [serverless-plugin-cloudfront-lambda-edge V2](https://github.com/silvermine/serverless-plugin-cloudfront-lambda-edge).
+
+
+
+## Deleting Functions
+Running the standard `sls remove` won't work because the association with the function to CloudFront. So before running `sls remove`, you need to manually remove the CloudFront event function association(s), and then wait until the CloudFront distribution is fully deployed. It seems to take 30 minutes or more.
 
 ## How do I contribute?
 
