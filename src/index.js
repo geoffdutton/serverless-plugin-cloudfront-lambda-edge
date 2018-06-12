@@ -181,16 +181,17 @@ module.exports = Class.extend({
    _distIdIsWaiting: null,
 
    _waitForDistributionDeployed: function(distPhysicalID, distLogicalName) {
+      var self = this,
+          firstDot = true,
+          running = true,
+          cloudfront;
+
       if (this._distIdIsWaiting) {
          return Q.resolve();
       }
 
+      cloudfront = new this._provider.sdk.CloudFront(this._provider.getCredentials());
       this._distIdIsWaiting = distPhysicalID;
-
-      var self = this,
-          cloudfront = new this._provider.sdk.CloudFront(this._provider.getCredentials()),
-          firstDot = true,
-          running = true;
 
       function dotPrinter() {
          if (running) {
