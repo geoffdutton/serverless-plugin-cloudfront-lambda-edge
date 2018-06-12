@@ -1,9 +1,9 @@
 # Serverless Plugin: Support Lambda@Edge for Existing CloudFront Distributions
-
-[![Build Status](https://travis-ci.org/silvermine/serverless-plugin-cloudfront-lambda-edge.png?branch=master)](https://travis-ci.org/silvermine/serverless-plugin-cloudfront-lambda-edge)
-[![Coverage Status](https://coveralls.io/repos/github/silvermine/serverless-plugin-cloudfront-lambda-edge/badge.svg?branch=master)](https://coveralls.io/github/silvermine/serverless-plugin-cloudfront-lambda-edge?branch=master)
-[![Dependency Status](https://david-dm.org/silvermine/serverless-plugin-cloudfront-lambda-edge.png)](https://david-dm.org/silvermine/serverless-plugin-cloudfront-lambda-edge)
-[![Dev Dependency Status](https://david-dm.org/silvermine/serverless-plugin-cloudfront-lambda-edge/dev-status.png)](https://david-dm.org/silvermine/serverless-plugin-cloudfront-lambda-edge#info=devDependencies&view=table)
+[![js-standard-style](https://img.shields.io/badge/code%20style-standard-brightgreen.svg)](http://standardjs.com)
+[![Build Status](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.png?branch=master)](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
+[![Coverage Status](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/badge.svg?branch=master)](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge?branch=master)
+[![Dependency Status](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.svg)](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
+[![Dev Dependency Status](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/dev-status.png)](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge#info=devDependencies&view=table)
 
 ## First things first
 If you don't have an existing CloudFront distribution, just use [serverless-plugin-cloudfront-lambda-edge V2](https://github.com/silvermine/serverless-plugin-cloudfront-lambda-edge).
