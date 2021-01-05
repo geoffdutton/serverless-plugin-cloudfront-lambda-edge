@@ -1,5 +1,4 @@
 # Serverless Plugin: Support Lambda@Edge for Existing CloudFront Distributions
-[![js-standard-style](https://img.shields.io/badge/code%20style-standard-brightgreen.svg)](http://standardjs.com)
 [![Build Status](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.png?branch=master)](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
 [![Coverage Status](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/badge.svg?branch=master)](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge?branch=master)
 [![Dependency Status](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.svg)](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)

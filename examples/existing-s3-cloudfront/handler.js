@@ -1,7 +1,4 @@
-/* eslint-disable no-console */
-
 module.exports = {
-
   // invoked by CloudFront (origin response)
   handler: function (event, context, cb) {
     const response = event.Records[0].cf.response

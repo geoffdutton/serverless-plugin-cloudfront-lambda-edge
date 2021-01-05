@@ -1,8 +1,8 @@
 const Plugin = require('../index.js')
 
-function noop () {}
+function noop() {}
 
-function stubServerless () {
+function stubServerless() {
   return {
     getProvider: function () {
       return {}
@@ -67,18 +67,24 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
     it('requires a valid event type', function () {
       functions.someFn.lambdaAtEdge.eventType = 'wrong-event'
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/"wrong-event" is not a valid event type, must be one of/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
+        /"wrong-event" is not a valid event type, must be one of/
+      )
     })
 
     it('requires a valid distribution', function () {
       functions.someFn.lambdaAtEdge.distributionID = null
       functions.someFn.lambdaAtEdge.distribution = 'not-existing'
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Could not find resource with logical name "not-existing" or there is no distributionID set/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
+        /Could not find resource with logical name "not-existing" or there is no distributionID set/
+      )
     })
 
     it('requires a distribution even with distributionID', function () {
       functions.someFn.lambdaAtEdge.distribution = null
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Distribution ID "123ABC" requires a distribution to be set/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
+        /Distribution ID "123ABC" requires a distribution to be set/
+      )
     })
 
     it('requires resource type to be AWS::CloudFront::Distribution', function () {
@@ -87,7 +93,9 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
       template.Resources.SomeRes = { Type: 'wrongtype' }
 
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Resource with logical name "SomeRes" is not type AWS::CloudFront::Distribution/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
+        /Resource with logical name "SomeRes" is not type AWS::CloudFront::Distribution/
+      )
     })
 
     it('adds valid pending association', function () {
@@ -104,9 +112,13 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         eventType: 'viewer-request'
       })
 
-      expect(plugin._provider.naming.getLambdaLogicalId).toHaveBeenCalledWith('someFn')
+      expect(plugin._provider.naming.getLambdaLogicalId).toHaveBeenCalledWith(
+        'someFn'
+      )
 
-      expect(plugin._provider.naming.getLambdaVersionOutputLogicalId).toHaveBeenCalledWith('someFn')
+      expect(
+        plugin._provider.naming.getLambdaVersionOutputLogicalId
+      ).toHaveBeenCalledWith('someFn')
     })
 
     it('accepts a distribution Id in place of a Resource distribution', function () {
@@ -126,8 +138,16 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
   describe('_getDistributionPhysicalIDs()', function () {
     it('does not call describeStackResource if all pending contain distributionIDs', function () {
       plugin._pendingAssociations = [
-        { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist1', distributionID: 'ABC' },
-        { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist2', distributionID: 'DEF' }
+        {
+          fnLogicalName: 'some-fn1',
+          distLogicalName: 'WebDist1',
+          distributionID: 'ABC'
+        },
+        {
+          fnLogicalName: 'some-fn2',
+          distLogicalName: 'WebDist2',
+          distributionID: 'DEF'
+        }
       ]
       return plugin._getDistributionPhysicalIDs().then(function (dists) {
         expect(dists).toEqual({
@@ -146,7 +166,11 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
     it('gets physical id from stack', function () {
       plugin._pendingAssociations = [
-        { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist', distributionID: null }
+        {
+          fnLogicalName: 'some-fn1',
+          distLogicalName: 'WebDist',
+          distributionID: null
+        }
       ]
 
       plugin._provider.request.mockResolvedValueOnce({
@@ -179,8 +203,16 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
     it('does not call describeStackResource if same dist logical name and dist id are the same for all pending associations', function () {
       plugin._pendingAssociations = [
-        { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist1', distributionID: 'ABC' },
-        { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist1', distributionID: 'ABC' }
+        {
+          fnLogicalName: 'some-fn1',
+          distLogicalName: 'WebDist1',
+          distributionID: 'ABC'
+        },
+        {
+          fnLogicalName: 'some-fn2',
+          distLogicalName: 'WebDist1',
+          distributionID: 'ABC'
+        }
       ]
       return plugin._getDistributionPhysicalIDs().then(function (dists) {
         expect(dists).toEqual({
