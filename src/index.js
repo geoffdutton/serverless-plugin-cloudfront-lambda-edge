@@ -1,35 +1,35 @@
-const _ = require('underscore')
-const Q = require('q')
-const Class = require('class.extend')
-const VALID_EVENT_TYPES = [ 'viewer-request', 'origin-request', 'viewer-response', 'origin-response' ]
+const _ = require('lodash')
 
-module.exports = Class.extend({
+const VALID_EVENT_TYPES = ['viewer-request', 'origin-request', 'viewer-response', 'origin-response']
 
-  init: function (serverless, opts) {
+class ServerlessPluginExistingCloudFrontLambdaEdge {
+  constructor (serverless, opts) {
     this._serverless = serverless
     this._provider = serverless ? serverless.getProvider('aws') : null
     this._opts = opts
-
     if (!this._provider) {
       throw new Error('This plugin must be used with AWS')
     }
+
+    this._alreadyWaitingForUpdates = new Set()
+    this._distIdIsWaiting = null
 
     this.hooks = {
       'aws:package:finalize:mergeCustomProviderResources': this._onPackageCustomResources.bind(this),
       'before:deploy:finalize': this._onBeforeDeployFinalize.bind(this),
       'package:function:package': this._onFunctionPackage.bind(this)
     }
-  },
-  _alreadyWaitingForUpdates: new Set(),
-  _onFunctionPackage: function () {
+  }
+
+  _onFunctionPackage () {
     this._serverless.cli.log('Function being packaged ...')
-  },
+  }
 
-  _onPackageCustomResources: function () {
+  _onPackageCustomResources () {
     this._modifyTemplate()
-  },
+  }
 
-  _onBeforeDeployFinalize: function () {
+  _onBeforeDeployFinalize () {
     const cnt = this._pendingAssociations.length
 
     if (cnt === 0) {
@@ -37,33 +37,34 @@ module.exports = Class.extend({
     }
 
     /**
-       * Each entry in the this._pendingAssociations array looks like this:
-       * {
-       *    "fnLogicalName": "YourFnNameLambdaFunction",
-       *    "distLogicalName": "WebsiteDistribution",
-       *    "fnCurrentVersionOutputName": "YourFnNameLambdaFunctionQualifiedArn",
-       *    "eventType": "origin-request",
-       * }
-       */
+     * Each entry in the this._pendingAssociations array looks like this:
+     * {
+     *    "fnLogicalName": "YourFnNameLambdaFunction",
+     *    "distLogicalName": "WebsiteDistribution",
+     *    "fnCurrentVersionOutputName": "YourFnNameLambdaFunctionQualifiedArn",
+     *    "eventType": "origin-request",
+     * }
+     */
 
     this._serverless.cli.log(
       'Checking to see if ' + cnt +
-         (cnt > 1 ? ' functions need ' : ' function needs ') +
-         'to be associated to CloudFront'
+      (cnt > 1 ? ' functions need ' : ' function needs ') +
+      'to be associated to CloudFront'
     )
 
-    return Q.all([ this._getFunctionsToAssociate(), this._getDistributionPhysicalIDs() ])
-      .spread(this._updateDistributionsAsNecessary.bind(this))
-  },
+    return Promise
+      .all([this._getFunctionsToAssociate(), this._getDistributionPhysicalIDs()])
+      .then(([fns, dist]) => this._updateDistributionsAsNecessary(fns, dist))
+  }
 
-  _modifyTemplate: function () {
+  _modifyTemplate () {
     const template = this._serverless.service.provider.compiledCloudFormationTemplate
 
     this._modifyExecutionRole(template)
     this._modifyLambdaFunctions(this._serverless.service.functions, template)
-  },
+  }
 
-  _modifyExecutionRole: function (template) {
+  _modifyExecutionRole (template) {
     let assumeRoleUpdated = false
 
     if (!template.Resources || !template.Resources.IamRoleLambdaExecution) {
@@ -71,15 +72,18 @@ module.exports = Class.extend({
       return
     }
 
-    _.each(template.Resources.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument.Statement, function (stmt) {
+    const statementKeys = Object.keys(template.Resources.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument.Statement)
+    statementKeys.forEach(statementKey => {
+      const stmt = template.Resources.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument.Statement[statementKey]
+
       const svc = stmt.Principal.Service
 
-      if (stmt.Principal && svc && _.contains(svc, 'lambda.amazonaws.com') && !_.contains(svc, 'edgelambda.amazonaws.com')) {
+      if (stmt.Principal && svc && svc.includes('lambda.amazonaws.com') && !svc.includes('edgelambda.amazonaws.com')) {
         svc.push('edgelambda.amazonaws.com')
         assumeRoleUpdated = true
         this._serverless.cli.log('Updated Lambda assume role policy to allow Lambda@Edge to assume the role')
       }
-    }.bind(this))
+    })
 
     // Serverless creates a LogGroup by a specific name, and grants logs:CreateLogStream
     // and logs:PutLogEvents permissions to the function. However, on a replicated
@@ -104,9 +108,9 @@ module.exports = Class.extend({
     if (!assumeRoleUpdated) {
       this._serverless.cli.log('WARNING: was unable to update the Lambda assume role policy to allow Lambda@Edge to assume the role')
     }
-  },
+  }
 
-  _modifyLambdaFunctions: function (functions, template) {
+  _modifyLambdaFunctions (functions, template) {
     const self = this
 
     this._pendingAssociations = _.chain(functions)
@@ -120,7 +124,7 @@ module.exports = Class.extend({
         const evtType = fnDef.lambdaAtEdge.eventType
         const dist = template.Resources[distName]
 
-        if (!_.contains(VALID_EVENT_TYPES, evtType)) {
+        if (!_.includes(VALID_EVENT_TYPES, evtType)) {
           throw new Error('"' + evtType + '" is not a valid event type, must be one of: ' + VALID_EVENT_TYPES.join(', '))
         }
 
@@ -152,10 +156,10 @@ module.exports = Class.extend({
         if (fnProps && fnProps.Environment && fnProps.Environment.Variables) {
           self._serverless.cli.log(
             'Removing ' +
-                  _.size(fnProps.Environment.Variables) +
-                  ' environment variables from function "' +
-                  fn.fnLogicalName +
-                  '" because Lambda@Edge does not support environment variables'
+            _.size(fnProps.Environment.Variables) +
+            ' environment variables from function "' +
+            fn.fnLogicalName +
+            '" because Lambda@Edge does not support environment variables'
           )
 
           delete fnProps.Environment.Variables
@@ -166,92 +170,77 @@ module.exports = Class.extend({
         }
       })
       .value()
-  },
+  }
 
-  _updateDistributionsAsNecessary: function (fns, dists) {
-    return Q.all(_.map(dists, this._updateDistributionAsNecessary.bind(this, fns)))
-  },
-
-  _distIdIsWaiting: null,
-
-  _waitForDistributionDeployed: function (distPhysicalID, distLogicalName) {
-    const self = this
+  async _waitForDistributionDeployed (distPhysicalID, distLogicalName) {
     let firstDot = true
     let running = true
 
     if (this._distIdIsWaiting) {
-      return Q.resolve()
+      return
     }
 
     const cloudfront = new this._provider.sdk.CloudFront(this._provider.getCredentials())
     this._distIdIsWaiting = distPhysicalID
 
-    function dotPrinter () {
+    const dotPrinter = () => {
       if (running) {
         if (firstDot) {
-          self._serverless.cli.log('Waiting for CloudFront distribution "' + distLogicalName + '" to be deployed')
-          self._serverless.cli.log('This can take awhile.')
+          this._serverless.cli.log('Waiting for CloudFront distribution "' + distLogicalName + '" to be deployed')
+          this._serverless.cli.log('This can take awhile.')
           firstDot = false
         }
-        self._serverless.cli.printDot()
+        this._serverless.cli.printDot()
         setTimeout(dotPrinter, 2000)
       }
     }
 
     setTimeout(dotPrinter, 1000)
 
-    return Q.ninvoke(cloudfront, 'waitFor', 'distributionDeployed', { Id: distPhysicalID })
-      .then(function (resp) {
+    return cloudfront.waitFor('distributionDeployed', { Id: distPhysicalID })
+      .then((data) => {
         running = false
         if (!firstDot) {
           // we have printed a dot, so clear the line
           this._serverless.cli.consoleLog('')
         }
-        this._serverless.cli.log('Distribution "' + distLogicalName + '" is now in "' + resp.Distribution.Status + '" state')
-      }.bind(this))
-      .catch(function (err) {
-        console.log(err) // eslint-disable-line no-console
+        this._serverless.cli.log('Distribution "' + distLogicalName + '" is now in "' + data.Distribution.Status + '" state')
       })
-  },
+  }
 
-  _updateDistributionAsNecessary: function (fns, dist) {
-    const self = this
+  _updateDistributionAsNecessary (fns, dist) {
     const distID = dist.distributionID
     const distName = dist.distLogicalName
 
-    if (this._alreadyWaitingForUpdates.has(distID + distName)) {
-      return Q.resolve()
-    }
-
-    this._alreadyWaitingForUpdates.add(distID + distName)
-
     return this._waitForDistributionDeployed(distID, distName)
-      .then(function () {
-        return self._provider.request('CloudFront', 'getDistribution', { Id: distID })
-      })
-      .then(function (resp) {
+      .then(() => this._provider.request('CloudFront', 'getDistribution', { Id: distID }))
+      .then(resp => {
         const config = resp.Distribution.DistributionConfig
-        const changed = self._modifyDistributionConfigIfNeeded(config, fns[distName])
+        const changed = this._modifyDistributionConfigIfNeeded(config, fns[distName])
         const updateParams = { Id: distID, DistributionConfig: config, IfMatch: resp.ETag }
 
         if (changed) {
-          self._serverless.cli.log('Updating distribution "' + distName + '" because we updated Lambda@Edge associations on it')
-          return self._provider.request('CloudFront', 'updateDistribution', updateParams)
-            .then(function () {
-              return self._waitForDistributionDeployed(distID, distName)
-            })
-            .then(function () {
-              self._serverless.cli.log('Done updating distribution "' + distName + '"')
+          // const prom = this._alreadyWaitingForUpdates.has(distID + distName)
+          //   ? Q.resolve()
+          //   // we only need to call this once
+          //   : this._provider.request('CloudFront', 'updateDistribution', updateParams)
+
+          this._alreadyWaitingForUpdates.add(distID + distName)
+          this._serverless.cli.log('Updating distribution "' + distName + '" because we updated Lambda@Edge associations on it')
+          return this._provider.request('CloudFront', 'updateDistribution', updateParams)
+            .then(() => this._waitForDistributionDeployed(distID, distName))
+            .then(() => {
+              this._serverless.cli.log('Done updating distribution "' + distName + '"')
             })
         }
 
-        self._serverless.cli.log(
+        this._serverless.cli.log(
           'The distribution is already configured with the current versions of each Lambda@Edge function it needs'
         )
       })
-  },
+  }
 
-  _modifyDistributionConfigIfNeeded: function (distConfig, fns) {
+  _modifyDistributionConfigIfNeeded (distConfig, fns) {
     let changed = this._associateFunctionsToBehavior(distConfig.DefaultCacheBehavior, fns)
 
     _.each(distConfig.CacheBehaviors.Items, function (beh) {
@@ -261,13 +250,13 @@ module.exports = Class.extend({
     }.bind(this))
 
     return changed
-  },
+  }
 
-  _associateFunctionsToBehavior: function (beh, fns) {
+  _associateFunctionsToBehavior (beh, fns) {
     let changed = false
 
-    _.each(fns, function (fn) {
-      const existing = _.findWhere(beh.LambdaFunctionAssociations.Items, { EventType: fn.eventType })
+    fns.forEach((fn) => {
+      const existing = _.find(beh.LambdaFunctionAssociations.Items, { EventType: fn.eventType })
 
       if (!existing) {
         this._serverless.cli.log('Adding new Lamba@Edge association for ' + fn.eventType + ': ' + fn.fnARN)
@@ -281,21 +270,21 @@ module.exports = Class.extend({
         existing.LambdaFunctionARN = fn.fnARN
         changed = true
       }
-    }.bind(this))
+    })
 
     if (changed) {
       beh.LambdaFunctionAssociations.Quantity = beh.LambdaFunctionAssociations.Items.length
     }
 
     return changed
-  },
+  }
 
-  _getFunctionsToAssociate: function () {
+  _getFunctionsToAssociate () {
     const stackName = this._provider.naming.getStackName()
 
     return this._provider.request('CloudFormation', 'describeStacks', { StackName: stackName })
       .then(function (resp) {
-        const stack = _.findWhere(resp.Stacks, { StackName: stackName })
+        const stack = _.find(resp.Stacks, { StackName: stackName })
 
         if (!stack) {
           throw new Error('CloudFormation did not return a stack with name "' + stackName + '"')
@@ -303,7 +292,7 @@ module.exports = Class.extend({
 
         return _.reduce(this._pendingAssociations, function (memo, pending) {
           const outputName = pending.fnCurrentVersionOutputName
-          const output = _.findWhere(stack.Outputs, { OutputKey: outputName })
+          const output = _.find(stack.Outputs, { OutputKey: outputName })
 
           if (!output) {
             throw new Error('Stack "' + stackName + '" did not have an output with name "' + outputName + '"')
@@ -321,9 +310,9 @@ module.exports = Class.extend({
           return memo
         }, {})
       }.bind(this))
-  },
+  }
 
-  _getDistributionPhysicalIDs: function () {
+  async _getDistributionPhysicalIDs () {
     const stackName = this._provider.naming.getStackName()
     const existingDistIds = _.reduce(this._pendingAssociations, function (memo, pending) {
       if (pending.distributionID) {
@@ -337,13 +326,13 @@ module.exports = Class.extend({
 
     // If they all had distributionIDs, no reason to query CloudFormation
     if (_.size(existingDistIds) === this._pendingAssociations.length) {
-      return Q.resolve(existingDistIds)
+      return existingDistIds
     }
 
     return this._provider.request('CloudFormation', 'describeStackResources', { StackName: stackName })
-      .then(function (resp) {
-        return _.reduce(this._pendingAssociations, function (memo, pending) {
-          const resource = _.findWhere(resp.StackResources, { LogicalResourceId: pending.distLogicalName })
+      .then((resp) => {
+        return _.reduce(this._pendingAssociations, (memo, pending) => {
+          const resource = _.find(resp.StackResources, { LogicalResourceId: pending.distLogicalName })
 
           if (!resource) {
             throw new Error('Stack "' + stackName + '" did not have a resource with logical name "' + pending.distLogicalName + '"')
@@ -356,7 +345,8 @@ module.exports = Class.extend({
 
           return memo
         }, {})
-      }.bind(this))
+      })
   }
+}
 
-})
+module.exports = ServerlessPluginExistingCloudFrontLambdaEdge

@@ -1,8 +1,6 @@
-'use strict'
-const _ = require('underscore')
-const expect = require('expect.js')
 const Plugin = require('../index.js')
-const sinon = require('sinon')
+
+function noop () {}
 
 function stubServerless () {
   return {
@@ -10,9 +8,9 @@ function stubServerless () {
       return {}
     },
     cli: {
-      log: _.noop,
-      consoleLog: _.noop,
-      printDot: _.noop
+      log: noop,
+      consoleLog: noop,
+      printDot: noop
     }
   }
 }
@@ -24,15 +22,15 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
   beforeEach(function () {
     plugin = new Plugin(stubServerless(), {})
-    plugin._provider.request = sinon.stub()
+    plugin._provider.request = jest.fn()
     plugin._provider.naming = {
-      getLambdaLogicalId: sinon.stub().callsFake(function (fnName) {
+      getLambdaLogicalId: jest.fn((fnName) => {
         return 'log_id_' + fnName
       }),
-      getLambdaVersionOutputLogicalId: sinon.stub().callsFake(function (fnName) {
+      getLambdaVersionOutputLogicalId: jest.fn((fnName) => {
         return 'lambda_ver_id_' + fnName
       }),
-      getStackName: sinon.stub().returns('some-stack')
+      getStackName: jest.fn().mockReturnValue('some-stack')
     }
 
     functions = {
@@ -47,7 +45,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
     template = {
       Resources: {
-        'log_id_someFn': {
+        log_id_someFn: {
           Properties: {}
         }
       }
@@ -64,26 +62,23 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         someFn: {}
       }
       plugin._modifyLambdaFunctions(functions, template)
-      expect(plugin._pendingAssociations).to.eql([])
+      expect(plugin._pendingAssociations).toEqual([])
     })
 
     it('requires a valid event type', function () {
       functions.someFn.lambdaAtEdge.eventType = 'wrong-event'
-      expect(plugin._modifyLambdaFunctions).withArgs(functions, template).to
-        .throwException(/"wrong-event" is not a valid event type, must be one of/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/"wrong-event" is not a valid event type, must be one of/)
     })
 
     it('requires a valid distribution', function () {
       functions.someFn.lambdaAtEdge.distributionID = null
       functions.someFn.lambdaAtEdge.distribution = 'not-existing'
-      expect(plugin._modifyLambdaFunctions).withArgs(functions, template).to
-        .throwException(/Could not find resource with logical name "not-existing" or there is no distributionID set/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Could not find resource with logical name "not-existing" or there is no distributionID set/)
     })
 
     it('requires a distribution even with distributionID', function () {
       functions.someFn.lambdaAtEdge.distribution = null
-      expect(plugin._modifyLambdaFunctions.bind(plugin)).withArgs(functions, template).to
-        .throwException(/Distribution ID "123ABC" requires a distribution to be set/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Distribution ID "123ABC" requires a distribution to be set/)
     })
 
     it('requires resource type to be AWS::CloudFront::Distribution', function () {
@@ -92,8 +87,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
       template.Resources.SomeRes = { Type: 'wrongtype' }
 
-      expect(plugin._modifyLambdaFunctions).withArgs(functions, template).to
-        .throwException(/Resource with logical name "SomeRes" is not type AWS::CloudFront::Distribution/)
+      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(/Resource with logical name "SomeRes" is not type AWS::CloudFront::Distribution/)
     })
 
     it('adds valid pending association', function () {
@@ -102,7 +96,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
 
       plugin._modifyLambdaFunctions(functions, template)
 
-      expect(plugin._pendingAssociations[0]).to.eql({
+      expect(plugin._pendingAssociations[0]).toEqual({
         fnLogicalName: 'log_id_someFn',
         distLogicalName: 'WebDist',
         distributionID: null,
@@ -110,15 +104,16 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         eventType: 'viewer-request'
       })
 
-      sinon.assert.calledWith(plugin._provider.naming.getLambdaLogicalId, 'someFn')
-      sinon.assert.calledWith(plugin._provider.naming.getLambdaVersionOutputLogicalId, 'someFn')
+      expect(plugin._provider.naming.getLambdaLogicalId).toHaveBeenCalledWith('someFn')
+
+      expect(plugin._provider.naming.getLambdaVersionOutputLogicalId).toHaveBeenCalledWith('someFn')
     })
 
     it('accepts a distribution Id in place of a Resource distribution', function () {
       functions.someFn.lambdaAtEdge.distribution = 'ExistingWebDist'
       plugin._modifyLambdaFunctions(functions, template)
 
-      expect(plugin._pendingAssociations[0]).to.eql({
+      expect(plugin._pendingAssociations[0]).toEqual({
         fnLogicalName: 'log_id_someFn',
         distLogicalName: 'ExistingWebDist',
         distributionID: '123ABC',
@@ -135,7 +130,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist2', distributionID: 'DEF' }
       ]
       return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).to.eql({
+        expect(dists).toEqual({
           'some-fn1': {
             distLogicalName: 'WebDist1',
             distributionID: 'ABC'
@@ -145,7 +140,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
             distributionID: 'DEF'
           }
         })
-        sinon.assert.notCalled(plugin._provider.request)
+        expect(plugin._provider.request).not.toHaveBeenCalled()
       })
     })
 
@@ -154,23 +149,31 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         { fnLogicalName: 'some-fn1', distLogicalName: 'WebDist', distributionID: null }
       ]
 
-      plugin._provider.request.withArgs('CloudFormation', 'describeStackResources', { StackName: 'some-stack' })
-        .resolves({
-          StackResources: [
-            {
-              LogicalResourceId: 'WebDist',
-              PhysicalResourceId: 'ABC123'
-            }
-          ]
-        })
+      plugin._provider.request.mockResolvedValueOnce({
+        StackResources: [
+          {
+            LogicalResourceId: 'WebDist',
+            PhysicalResourceId: 'ABC123'
+          }
+        ]
+      })
+
+      // plugin._provider.request.withArgs('CloudFormation', 'describeStackResources', { StackName: 'some-stack' })
+      //   .resolves()
 
       return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).to.eql({
+        expect(dists).toEqual({
           'some-fn1': {
             distLogicalName: 'WebDist',
             distributionID: 'ABC123'
           }
         })
+
+        expect(plugin._provider.request).toHaveBeenCalledWith(
+          'CloudFormation',
+          'describeStackResources',
+          { StackName: 'some-stack' }
+        )
       })
     })
 
@@ -180,7 +183,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         { fnLogicalName: 'some-fn2', distLogicalName: 'WebDist1', distributionID: 'ABC' }
       ]
       return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).to.eql({
+        expect(dists).toEqual({
           'some-fn1': {
             distLogicalName: 'WebDist1',
             distributionID: 'ABC'
@@ -190,7 +193,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
             distributionID: 'ABC'
           }
         })
-        sinon.assert.notCalled(plugin._provider.request)
+        expect(plugin._provider.request).not.toHaveBeenCalled()
       })
     })
   })
