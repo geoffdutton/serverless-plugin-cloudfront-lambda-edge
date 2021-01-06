@@ -1,12 +1,12 @@
 module.exports = {
   // invoked by CloudFront (origin response)
-  handler: function (event, context, cb) {
+  async handler(event, context) {
+    console.log(JSON.stringify({ context, event }, null, 2))
     const response = event.Records[0].cf.response
     const headers = response.headers
     const requestHeaders = event.Records[0].cf.request.headers
     const countryCode = requestHeaders['cloudfront-viewer-country'][0].value
 
-    console.log(JSON.stringify(event, null, 2))
     headers['x-serverless-example'] = [
       {
         key: 'X-Serverless-Example',
@@ -29,15 +29,14 @@ module.exports = {
     //    },
     // ];
 
-    cb(null, response)
+    return response
   },
 
   // invoked by CloudFront (viewer response)
-  cookieSetter: function (event, context, cb) {
+  async cookieSetter(event, context) {
+    console.log(JSON.stringify({ context, event }, null, 2))
     const response = event.Records[0].cf.response
     const headers = response.headers
-
-    console.log(JSON.stringify(event, null, 2))
 
     const countryCode = (headers['x-country-code'] || [{}])[0].value || 'NA'
     headers['set-cookie'] = [
@@ -47,6 +46,6 @@ module.exports = {
       }
     ]
 
-    cb(null, response)
+    return response
   }
 }

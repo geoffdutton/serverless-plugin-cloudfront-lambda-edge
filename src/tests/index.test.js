@@ -1,16 +1,25 @@
 const Plugin = require('../index.js')
 
-function noop() {}
-
 function stubServerless() {
   return {
     getProvider: function () {
-      return {}
+      return {
+        request: jest.fn(),
+        naming: {
+          getLambdaLogicalId: jest.fn((fnName) => {
+            return 'log_id_' + fnName
+          }),
+          getLambdaVersionOutputLogicalId: jest.fn((fnName) => {
+            return 'lambda_ver_id_' + fnName
+          }),
+          getStackName: jest.fn().mockReturnValue('some-stack')
+        }
+      }
     },
     cli: {
-      log: noop,
-      consoleLog: noop,
-      printDot: noop
+      log: jest.fn(),
+      consoleLog: jest.fn(),
+      printDot: jest.fn()
     }
   }
 }
@@ -19,19 +28,10 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
   let plugin
   let functions
   let template
+  let stubbedSls
 
   beforeEach(function () {
     plugin = new Plugin(stubServerless(), {})
-    plugin._provider.request = jest.fn()
-    plugin._provider.naming = {
-      getLambdaLogicalId: jest.fn((fnName) => {
-        return 'log_id_' + fnName
-      }),
-      getLambdaVersionOutputLogicalId: jest.fn((fnName) => {
-        return 'lambda_ver_id_' + fnName
-      }),
-      getStackName: jest.fn().mockReturnValue('some-stack')
-    }
 
     functions = {
       someFn: {
@@ -52,8 +52,109 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     }
 
     plugin._serverless.service = {
-      functions: functions
+      functions: functions,
+      provider: {
+        compiledCloudFormationTemplate: {
+          Resources: {
+            IamRoleLambdaExecution: {
+              Properties: {
+                AssumeRolePolicyDocument: {
+                  Statement: [
+                    {
+                      Principal: {
+                        Service: ['lambda.amazonaws.com']
+                      }
+                    }
+                  ]
+                },
+                Policies: [
+                  {
+                    PolicyDocument: {
+                      Statement: []
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
     }
+
+    stubbedSls = plugin._serverless
+  })
+
+  describe('_onPackageCustomResources', () => {
+    beforeEach(() => {
+      plugin._modifyLambdaFunctions = jest.fn()
+    })
+
+    it('warns if not IamRoleLambdaExecution', () => {
+      stubbedSls.service.provider.compiledCloudFormationTemplate.Resources = {}
+      plugin._onPackageCustomResources()
+      expect(plugin._modifyLambdaFunctions).toHaveBeenCalledWith(
+        stubbedSls.service.functions,
+        {
+          Resources: {}
+        }
+      )
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        'WARNING: no IAM role for Lambda execution found - can not modify assume role policy'
+      )
+    })
+
+    it('adds edge lambda to IamRoleLambdaExecution if not there', () => {
+      plugin._onPackageCustomResources()
+      const cpldTmpl =
+        stubbedSls.service.provider.compiledCloudFormationTemplate.Resources
+      expect(
+        cpldTmpl.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument
+          .Statement[0].Principal.Service
+      ).toEqual(['lambda.amazonaws.com', 'edgelambda.amazonaws.com'])
+
+      expect(
+        cpldTmpl.IamRoleLambdaExecution.Properties.Policies[0].PolicyDocument
+          .Statement
+      ).toContainEqual({
+        Effect: 'Allow',
+        Action: [
+          'logs:CreateLogGroup',
+          'logs:CreateLogStream',
+          'logs:PutLogEvents',
+          'logs:DescribeLogStreams'
+        ],
+        Resource: 'arn:aws:logs:*:*:*'
+      })
+
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        'Updated Lambda assume role policy to allow Lambda@Edge to assume the role'
+      )
+
+      expect(stubbedSls.cli.log).not.toHaveBeenCalledWith(
+        'WARNING: was unable to update the Lambda assume role policy to allow Lambda@Edge to assume the role'
+      )
+    })
+
+    it('warns if policy is not updated', () => {
+      const cpldTmpl =
+        stubbedSls.service.provider.compiledCloudFormationTemplate.Resources
+      cpldTmpl.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument.Statement[0].Principal.Service = []
+
+      plugin._onPackageCustomResources()
+
+      expect(
+        cpldTmpl.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument
+          .Statement[0].Principal.Service
+      ).toEqual([])
+
+      expect(stubbedSls.cli.log).not.toHaveBeenCalledWith(
+        'Updated Lambda assume role policy to allow Lambda@Edge to assume the role'
+      )
+
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        'WARNING: was unable to update the Lambda assume role policy to allow Lambda@Edge to assume the role'
+      )
+    })
   })
 
   describe('_modifyLambdaFunctions()', function () {
@@ -229,4 +330,153 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
       })
     })
   })
+
+  describe('_onBeforeDeployFinalize', () => {
+    beforeEach(() => {
+      plugin._pendingAssociations = []
+      plugin._getFunctionsToAssociate = jest.fn().mockResolvedValue({
+        WebDist1: [
+          {
+            eventType: 'viewer-request',
+            fnARN: 'web-dist1-arn'
+          }
+        ]
+      })
+
+      plugin._getDistributionPhysicalIDs = jest.fn().mockResolvedValue({
+        'some-fn1': {
+          distLogicalName: 'WebDist1',
+          distributionID: 'ABC'
+        }
+      })
+
+      plugin._updateDistributionsAsNecessary = jest.fn().mockResolvedValue()
+    })
+
+    it('returns if no pending associations', async () => {
+      await plugin._onBeforeDeployFinalize()
+      expect(plugin._getFunctionsToAssociate).not.toHaveBeenCalled()
+    })
+
+    it('updates pending associations', async () => {
+      plugin._pendingAssociations = [
+        {
+          fnLogicalName: 'some-fn1',
+          distLogicalName: 'WebDist1',
+          distributionID: 'ABC'
+        }
+      ]
+      await plugin._onBeforeDeployFinalize()
+
+      expect(plugin._getFunctionsToAssociate).toHaveBeenCalledTimes(1)
+      expect(plugin._getDistributionPhysicalIDs).toHaveBeenCalledTimes(1)
+      expect(plugin._updateDistributionsAsNecessary).toHaveBeenCalledWith(
+        {
+          WebDist1: [
+            {
+              eventType: 'viewer-request',
+              fnARN: 'web-dist1-arn'
+            }
+          ]
+        },
+        {
+          'some-fn1': {
+            distLogicalName: 'WebDist1',
+            distributionID: 'ABC'
+          }
+        }
+      )
+    })
+  })
+
+  describe('_updateDistributionAsNecessary', () => {
+    let _dist
+    beforeEach(() => {
+      _dist = {
+        distLogicalName: 'WebDist1',
+        distributionID: '123ABC'
+      }
+      functions = {
+        WebDist1: [
+          {
+            eventType: 'viewer-request',
+            fnARN: 'web-dist1-arn'
+          }
+        ]
+      }
+      plugin._provider.request
+        .mockResolvedValueOnce({
+          Distribution: {
+            Status: 'Deploying'
+          }
+        })
+        .mockResolvedValueOnce()
+      plugin._modifyDistributionConfigIfNeeded = jest.fn().mockReturnValue(true)
+      plugin._waitForDistributionDeployed = jest.fn().mockResolvedValue({
+        Distribution: {
+          Status: 'Deployed',
+          DistributionConfig: {
+            Dist: 'config'
+          }
+        },
+        ETag: 'etag-1'
+      })
+    })
+
+    it('update distribution if config changed', async () => {
+      await plugin._updateDistributionAsNecessary(functions, _dist)
+      expect(plugin._provider.request).toHaveBeenCalledWith(
+        'CloudFront',
+        'getDistribution',
+        {
+          Id: _dist.distributionID
+        }
+      )
+
+      expect(plugin._waitForDistributionDeployed).toHaveBeenCalledWith(
+        _dist.distributionID,
+        _dist.distLogicalName
+      )
+
+      expect(plugin._alreadyWaitingForUpdates).toContain(
+        _dist.distributionID + _dist.distLogicalName
+      )
+
+      expect(plugin._provider.request).toHaveBeenCalledWith(
+        'CloudFront',
+        'updateDistribution',
+        {
+          Id: _dist.distributionID,
+          DistributionConfig: {
+            Dist: 'config'
+          },
+          IfMatch: 'etag-1'
+        }
+      )
+
+      expect(plugin._waitForDistributionDeployed).toHaveBeenCalledTimes(2)
+    })
+
+    it('skips updates if not changed', async () => {
+      plugin._modifyDistributionConfigIfNeeded.mockReturnValue(false)
+      plugin._provider.request = jest.fn().mockResolvedValueOnce({
+        Distribution: {
+          Status: 'Deployed'
+        }
+      })
+      await plugin._updateDistributionAsNecessary(functions, _dist)
+      expect(plugin._provider.request).toHaveBeenCalledWith(
+        'CloudFront',
+        'getDistribution',
+        {
+          Id: _dist.distributionID
+        }
+      )
+
+      expect(plugin._waitForDistributionDeployed).not.toHaveBeenCalled()
+      expect(plugin._provider.request).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe('_waitForDistributionDeployed', () => {})
 })
