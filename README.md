@@ -1,6 +1,6 @@
 # Serverless Plugin: Support Lambda@Edge for Existing CloudFront Distributions
-[![Build Status](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.png?branch=master)](https://travis-ci.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
-[![Coverage Status](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/badge.svg?branch=master)](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge?branch=master)
+[![Build Status](https://travis-ci.com/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.svg?branch=master)](https://travis-ci.com/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
+[![Coverage Status](https://coveralls.io/repos/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/badge.svg?branch=master)](https://coveralls.io/github/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge?branch=master)
 [![Dependency Status](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge.svg)](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge)
 [![Dev Dependency Status](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge/dev-status.png)](https://david-dm.org/geoffdutton/serverless-plugin-existing-cloudfront-lambda-edge#info=devDependencies&view=table)
 
