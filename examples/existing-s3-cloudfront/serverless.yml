@@ -28,7 +28,7 @@ package:
 
 provider:
    name: aws
-   runtime: nodejs8.10
+   runtime: nodejs12.x
    region: ${self:custom.region}
    stage: ${self:custom.stage}
    # Fun fact! You have to version functions because Lambda@Edge requires an explicit version rather than $LATEST
