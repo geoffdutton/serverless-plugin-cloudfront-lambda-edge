@@ -9,4 +9,4 @@ script:
 
 # For code coverage:
 after_success:
-   cat ./coverage/lcov.info | ./node_modules/coveralls/bin/coveralls.js && rm -rf ./coverage
+  npm run coveralls

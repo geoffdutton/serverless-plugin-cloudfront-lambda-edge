@@ -4,6 +4,7 @@
   "description": "Plugin for the Serverless v2.x to provide support for Lambda@Edge for existing CloudFront Distributions",
   "main": "src/index.js",
   "scripts": {
+    "coveralls": "coveralls < ./coverage/lcov.info",
     "test": "jest --coverage",
     "tdd": "jest --watch",
     "lint": "eslint . examples/**/*.js src/**/*.js"
