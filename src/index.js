@@ -23,13 +23,8 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
       'aws:package:finalize:mergeCustomProviderResources': this._onPackageCustomResources.bind(
         this
       ),
-      'before:deploy:finalize': this._onBeforeDeployFinalize.bind(this),
-      'package:function:package': this._onFunctionPackage.bind(this)
+      'before:deploy:finalize': this._onBeforeDeployFinalize.bind(this)
     }
-  }
-
-  _onFunctionPackage() {
-    this._serverless.cli.log('Function being packaged ...')
   }
 
   _onPackageCustomResources() {
@@ -192,17 +187,13 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
         if (fnProps && fnProps.Environment && fnProps.Environment.Variables) {
           this._serverless.cli.log(
             'Removing ' +
-              _.size(fnProps.Environment.Variables) +
+              Object.keys(fnProps.Environment.Variables).length +
               ' environment variables from function "' +
               fn.fnLogicalName +
               '" because Lambda@Edge does not support environment variables'
           )
 
-          delete fnProps.Environment.Variables
-
-          if (_.isEmpty(fnProps.Environment)) {
-            delete fnProps.Environment
-          }
+          delete fnProps.Environment
         }
       })
       .value()
@@ -220,7 +211,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
   }
 
   async _waitForDistributionDeployed(distPhysicalID, distLogicalName) {
-    let firstDot = true
+    let dotPrinted = false
     let running = true
 
     if (this._distIdIsWaiting) {
@@ -236,14 +227,14 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     const dotPrinter = () => {
       clearTimeout(timeoutId)
       if (running) {
-        if (firstDot) {
+        if (!dotPrinted) {
           this._serverless.cli.log(
             'Waiting for CloudFront distribution "' +
               distLogicalName +
               '" to be deployed'
           )
           this._serverless.cli.log('This can take awhile.')
-          firstDot = false
+          dotPrinted = true
         }
         this._serverless.cli.printDot()
         timeoutId = setTimeout(dotPrinter, 2000)
@@ -262,7 +253,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
             return reject(err)
           }
           running = false
-          if (!firstDot) {
+          if (dotPrinted) {
             // we have printed a dot, so clear the line
             this._serverless.cli.consoleLog('')
           }

@@ -4,6 +4,7 @@ function stubServerless() {
   return {
     getProvider: function () {
       return {
+        getCredentials: jest.fn(() => ({ aws: 'creds' })),
         request: jest.fn(),
         naming: {
           getLambdaLogicalId: jest.fn((fnName) => {
@@ -233,6 +234,23 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         fnCurrentVersionOutputName: 'lambda_ver_id_someFn',
         eventType: 'viewer-request'
       })
+    })
+
+    it('removes and warns about environment variables', () => {
+      template.Resources.log_id_someFn.Properties.Environment = {
+        Variables: {
+          MY_FIRST_ENV_VAR: 'yay'
+        }
+      }
+      plugin._modifyLambdaFunctions(functions, template)
+      expect(
+        template.Resources.log_id_someFn.Properties.Environment
+      ).toBeUndefined()
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'Removing 1 environment variables from function "'
+        )
+      )
     })
   })
 
@@ -478,5 +496,370 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
   })
 
-  describe('_waitForDistributionDeployed', () => {})
+  describe('_waitForDistributionDeployed', () => {
+    let cfWaitForStub
+    let cloudFrontStub
+    let distPhysicalID
+    let distLogicalName
+    beforeEach(() => {
+      jest.useFakeTimers()
+      distPhysicalID = 'success-dist-id'
+      distLogicalName = 'WebDist3'
+
+      cfWaitForStub = jest.fn()
+
+      cloudFrontStub = jest.fn().mockImplementation(() => {
+        return {
+          waitFor: jest.fn((evName, { Id }, cb) => {
+            cfWaitForStub(evName, { Id }, cb)
+            cloudFrontStub.__callback = cb
+          })
+        }
+      })
+
+      plugin._provider.sdk = {
+        CloudFront: cloudFrontStub
+      }
+    })
+
+    afterEach(() => {
+      jest.useRealTimers()
+    })
+
+    it('returns if already waiting', async () => {
+      plugin._distIdIsWaiting = distPhysicalID
+      expect(
+        await plugin._waitForDistributionDeployed(
+          distPhysicalID,
+          distLogicalName
+        )
+      ).toBeUndefined()
+      expect(cloudFrontStub).not.toHaveBeenCalled()
+      expect(stubbedSls.cli.log).not.toHaveBeenCalled()
+    })
+
+    it('prints out status', async () => {
+      const prom = plugin._waitForDistributionDeployed(
+        distPhysicalID,
+        distLogicalName
+      )
+      expect(cloudFrontStub).toHaveBeenCalledWith({ aws: 'creds' })
+      jest.advanceTimersByTime(1000)
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        'Waiting for CloudFront distribution "' +
+          distLogicalName +
+          '" to be deployed'
+      )
+      expect(stubbedSls.cli.log).toHaveBeenCalledTimes(2)
+      expect(stubbedSls.cli.printDot).toHaveBeenCalledTimes(1)
+
+      jest.advanceTimersByTime(2000)
+      expect(stubbedSls.cli.log).toHaveBeenCalledTimes(2)
+      expect(stubbedSls.cli.printDot).toHaveBeenCalledTimes(2)
+
+      cloudFrontStub.__callback(null, {
+        Distribution: {
+          Status: 'Deployed'
+        }
+      })
+
+      expect(await prom).toEqual({
+        Distribution: {
+          Status: 'Deployed'
+        }
+      })
+      expect(cfWaitForStub).toHaveBeenCalledWith(
+        'distributionDeployed',
+        { Id: distPhysicalID },
+        cloudFrontStub.__callback
+      )
+
+      expect(stubbedSls.cli.consoleLog).toHaveBeenCalledWith('')
+
+      jest.runAllTimers()
+      expect(stubbedSls.cli.printDot).toHaveBeenCalledTimes(2)
+    })
+
+    it('rejects on error', async () => {
+      const prom = plugin._waitForDistributionDeployed(
+        distPhysicalID,
+        distLogicalName
+      )
+
+      cloudFrontStub.__callback(new Error('AWS Timeout'))
+      await expect(prom).rejects.toThrow('AWS Timeout')
+    })
+  })
+
+  describe('_updateDistributionsAsNecessary', () => {
+    beforeEach(() => {
+      plugin._updateDistributionAsNecessary = jest.fn().mockResolvedValue()
+    })
+
+    it('updates each distribution sequentially', async () => {
+      const _dists = {
+        fn1: {
+          distributionID: 'WebDist5',
+          distLogicalName: 'blah'
+        },
+        fn2: {
+          distributionID: 'WebDist5',
+          distLogicalName: 'blah'
+        }
+      }
+      await plugin._updateDistributionsAsNecessary(functions, _dists)
+      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledTimes(2)
+      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledWith(
+        functions,
+        _dists.fn1
+      )
+      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledWith(
+        functions,
+        _dists.fn2
+      )
+    })
+  })
+
+  describe('_getFunctionsToAssociate', () => {
+    beforeEach(() => {
+      plugin._provider.request = jest.fn(async (awsSvc, awsSvcMethod, args) => {
+        if (
+          awsSvc === 'CloudFormation' &&
+          awsSvcMethod === 'describeStacks' &&
+          args.StackName === 'some-stack'
+        ) {
+          return {
+            Stacks: [
+              {
+                StackName: 'some-stack',
+                Outputs: [
+                  {
+                    OutputKey: 'LambdaFnArn',
+                    OutputValue: 'aws:lambda:34234:arn:fn'
+                  },
+                  {
+                    OutputKey: 'LambdaFn2Arn',
+                    OutputValue: 'aws:lambda:34234:arn:fn2'
+                  }
+                ]
+              }
+            ]
+          }
+        }
+
+        return {
+          Stacks: []
+        }
+      })
+    })
+
+    it('resolves object with fnARN and eventType', async () => {
+      plugin._pendingAssociations = [
+        {
+          fnCurrentVersionOutputName: 'LambdaFnArn',
+          fnLogicalName: 'a-fn1',
+          distLogicalName: 'MyWebDist',
+          eventType: 'viewer-request'
+        },
+        {
+          fnCurrentVersionOutputName: 'LambdaFn2Arn',
+          fnLogicalName: 'a-fn2',
+          distLogicalName: 'MyWebDist',
+          eventType: 'viewer-response'
+        }
+      ]
+
+      await expect(plugin._getFunctionsToAssociate()).resolves.toEqual({
+        MyWebDist: [
+          {
+            eventType: 'viewer-request',
+            fnARN: 'aws:lambda:34234:arn:fn'
+          },
+          {
+            eventType: 'viewer-response',
+            fnARN: 'aws:lambda:34234:arn:fn2'
+          }
+        ]
+      })
+    })
+
+    it('rejects if stack not found', async () => {
+      plugin._provider.naming.getStackName.mockReturnValue('another-stack')
+      await expect(plugin._getFunctionsToAssociate()).rejects.toThrow(
+        `CloudFormation did not return a stack with name "another-stack"`
+      )
+    })
+  })
+
+  describe('_modifyDistributionConfigIfNeeded', () => {
+    let distConfig
+    let moddedFns
+    beforeEach(() => {
+      // This is generated by `_getFunctionsToAssociate()`
+      moddedFns = [
+        {
+          eventType: 'viewer-request',
+          fnARN: 'arn-fn1'
+        },
+        {
+          eventType: 'origin-response',
+          fnARN: 'arn-fn2'
+        },
+        {
+          eventType: 'viewer-response',
+          fnARN: 'arn-fn3'
+        }
+      ]
+      distConfig = {
+        CacheBehaviors: {
+          Items: []
+        },
+        DefaultCacheBehavior: {
+          LambdaFunctionAssociations: {
+            Items: [
+              {
+                EventType: 'origin-response',
+                LambdaFunctionARN: 'arn-old-fn2'
+              },
+              {
+                EventType: 'viewer-response',
+                LambdaFunctionARN: 'arn-fn3'
+              }
+            ]
+          }
+        }
+      }
+    })
+
+    describe('returns true', () => {
+      it('modifies default cache behavior', () => {
+        expect(
+          plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+        ).toBe(true)
+
+        expect(
+          distConfig.DefaultCacheBehavior.LambdaFunctionAssociations.Items
+        ).toEqual([
+          {
+            EventType: 'origin-response',
+            LambdaFunctionARN: 'arn-fn2'
+          },
+          {
+            EventType: 'viewer-response',
+            LambdaFunctionARN: 'arn-fn3'
+          },
+          {
+            EventType: 'viewer-request',
+            LambdaFunctionARN: 'arn-fn1'
+          }
+        ])
+      })
+
+      it('modifies other cache behaviors', () => {
+        moddedFns = [
+          {
+            eventType: 'viewer-request',
+            fnARN: 'arn-fn1'
+          },
+          {
+            eventType: 'origin-response',
+            fnARN: 'arn-fn2'
+          }
+        ]
+        distConfig = {
+          CacheBehaviors: {
+            Items: [
+              {
+                LambdaFunctionAssociations: {
+                  Items: []
+                }
+              }
+            ]
+          },
+          DefaultCacheBehavior: {
+            LambdaFunctionAssociations: {
+              Items: [
+                {
+                  EventType: 'origin-response',
+                  LambdaFunctionARN: 'arn-fn2'
+                },
+                {
+                  EventType: 'viewer-request',
+                  LambdaFunctionARN: 'arn-fn1'
+                }
+              ]
+            }
+          }
+        }
+        expect(
+          plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+        ).toBe(true)
+
+        expect(
+          distConfig.DefaultCacheBehavior.LambdaFunctionAssociations.Items
+        ).toEqual([
+          {
+            EventType: 'origin-response',
+            LambdaFunctionARN: 'arn-fn2'
+          },
+          {
+            EventType: 'viewer-request',
+            LambdaFunctionARN: 'arn-fn1'
+          }
+        ])
+
+        expect(
+          distConfig.CacheBehaviors.Items[0].LambdaFunctionAssociations.Items
+        ).toEqual([
+          {
+            EventType: 'viewer-request',
+            LambdaFunctionARN: 'arn-fn1'
+          },
+          {
+            EventType: 'origin-response',
+            LambdaFunctionARN: 'arn-fn2'
+          }
+        ])
+      })
+    })
+
+    it('returns false if no changes', () => {
+      moddedFns = [
+        {
+          eventType: 'viewer-request',
+          fnARN: 'arn-fn1'
+        }
+      ]
+      distConfig = {
+        CacheBehaviors: {
+          Items: [
+            {
+              LambdaFunctionAssociations: {
+                Items: [
+                  {
+                    EventType: 'viewer-request',
+                    LambdaFunctionARN: 'arn-fn1'
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        DefaultCacheBehavior: {
+          LambdaFunctionAssociations: {
+            Items: [
+              {
+                EventType: 'viewer-request',
+                LambdaFunctionARN: 'arn-fn1'
+              }
+            ]
+          }
+        }
+      }
+
+      expect(
+        plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+      ).toBe(false)
+    })
+  })
 })
