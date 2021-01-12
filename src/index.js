@@ -19,6 +19,22 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     this._alreadyWaitingForUpdates = new Set()
     this._distIdIsWaiting = null
 
+    // Create schema for your properties. For reference use https://github.com/ajv-validator/ajv
+    this.serverless.configSchemaHandler.defineFunctionProperties('aws', {
+      type: 'object',
+      properties: {
+        lambdaAtEdge: {
+          type: 'object',
+          properties: {
+            distributionID: { type: 'string' },
+            eventType: { type: 'string' }
+          },
+          required: ['distributionID', 'eventType'],
+          additionalProperties: false
+        }
+      }
+    })
+
     this.hooks = {
       'aws:package:finalize:mergeCustomProviderResources': this.onPackageCustomResources.bind(
         this

@@ -21,6 +21,9 @@ function stubServerless() {
       log: jest.fn(),
       consoleLog: jest.fn(),
       printDot: jest.fn()
+    },
+    configSchemaHandler: {
+      defineFunctionProperties: jest.fn()
     }
   }
 }
@@ -82,6 +85,25 @@ describe('serverless-plugin-existing-cloudfront-lambda-edge', function () {
     }
 
     stubbedSls = plugin.serverless
+  })
+
+  it('adds schema validation', () => {
+    expect(
+      stubbedSls.configSchemaHandler.defineFunctionProperties
+    ).toHaveBeenCalledWith('aws', {
+      type: 'object',
+      properties: {
+        lambdaAtEdge: {
+          type: 'object',
+          properties: {
+            distributionID: { type: 'string' },
+            eventType: { type: 'string' }
+          },
+          required: ['distributionID', 'eventType'],
+          additionalProperties: false
+        }
+      }
+    })
   })
 
   it('throws error if provider aws does not exist', () => {
