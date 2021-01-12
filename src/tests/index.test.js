@@ -2,7 +2,7 @@ const Plugin = require('../index.js')
 
 function stubServerless() {
   return {
-    getProvider: function () {
+    getProvider() {
       return {
         getCredentials: jest.fn(() => ({ aws: 'creds' })),
         request: jest.fn(),
@@ -25,7 +25,7 @@ function stubServerless() {
   }
 }
 
-describe('serverless-plugin-cloudfront-lambda-edge', function () {
+describe('serverless-plugin-existing-cloudfront-lambda-edge', function () {
   let plugin
   let functions
   let template
@@ -37,7 +37,6 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     functions = {
       someFn: {
         lambdaAtEdge: {
-          distribution: 'WebDist',
           distributionID: '123ABC',
           eventType: 'viewer-request'
         }
@@ -52,7 +51,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
       }
     }
 
-    plugin._serverless.service = {
+    plugin.serverless.service = {
       functions: functions,
       provider: {
         compiledCloudFormationTemplate: {
@@ -82,18 +81,26 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
       }
     }
 
-    stubbedSls = plugin._serverless
+    stubbedSls = plugin.serverless
   })
 
-  describe('_onPackageCustomResources', () => {
+  it('throws error if provider aws does not exist', () => {
+    const _stub = stubServerless()
+    _stub.getProvider = () => null
+    expect(() => new Plugin(_stub, {})).toThrow(
+      'This plugin must be used with AWS.'
+    )
+  })
+
+  describe('onPackageCustomResources', () => {
     beforeEach(() => {
-      plugin._modifyLambdaFunctions = jest.fn()
+      plugin.modifyLambdaFunctions = jest.fn()
     })
 
     it('warns if not IamRoleLambdaExecution', () => {
       stubbedSls.service.provider.compiledCloudFormationTemplate.Resources = {}
-      plugin._onPackageCustomResources()
-      expect(plugin._modifyLambdaFunctions).toHaveBeenCalledWith(
+      plugin.onPackageCustomResources()
+      expect(plugin.modifyLambdaFunctions).toHaveBeenCalledWith(
         stubbedSls.service.functions,
         {
           Resources: {}
@@ -105,7 +112,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
 
     it('adds edge lambda to IamRoleLambdaExecution if not there', () => {
-      plugin._onPackageCustomResources()
+      plugin.onPackageCustomResources()
       const cpldTmpl =
         stubbedSls.service.provider.compiledCloudFormationTemplate.Resources
       expect(
@@ -141,7 +148,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         stubbedSls.service.provider.compiledCloudFormationTemplate.Resources
       cpldTmpl.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument.Statement[0].Principal.Service = []
 
-      plugin._onPackageCustomResources()
+      plugin.onPackageCustomResources()
 
       expect(
         cpldTmpl.IamRoleLambdaExecution.Properties.AssumeRolePolicyDocument
@@ -158,78 +165,55 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
   })
 
-  describe('_modifyLambdaFunctions()', function () {
+  describe('modifyLambdaFunctions()', function () {
     it('does nothing if lambdaAtEdge doesnt exist', function () {
       functions = {
         someFn: {}
       }
-      plugin._modifyLambdaFunctions(functions, template)
+      plugin.modifyLambdaFunctions(functions, template)
       expect(plugin._pendingAssociations).toEqual([])
     })
 
     it('requires a valid event type', function () {
       functions.someFn.lambdaAtEdge.eventType = 'wrong-event'
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
+      expect(() => plugin.modifyLambdaFunctions(functions, template)).toThrow(
         /"wrong-event" is not a valid event type, must be one of/
       )
     })
 
-    it('requires a valid distribution', function () {
+    it('requires a distributionID', function () {
       functions.someFn.lambdaAtEdge.distributionID = null
-      functions.someFn.lambdaAtEdge.distribution = 'not-existing'
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
-        /Could not find resource with logical name "not-existing" or there is no distributionID set/
-      )
-    })
-
-    it('requires a distribution even with distributionID', function () {
-      functions.someFn.lambdaAtEdge.distribution = null
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
-        /Distribution ID "123ABC" requires a distribution to be set/
-      )
-    })
-
-    it('requires resource type to be AWS::CloudFront::Distribution', function () {
-      functions.someFn.lambdaAtEdge.distributionID = null
-      functions.someFn.lambdaAtEdge.distribution = 'SomeRes'
-
-      template.Resources.SomeRes = { Type: 'wrongtype' }
-
-      expect(() => plugin._modifyLambdaFunctions(functions, template)).toThrow(
-        /Resource with logical name "SomeRes" is not type AWS::CloudFront::Distribution/
+      expect(() => plugin.modifyLambdaFunctions(functions, template)).toThrow(
+        'This plugin requires "lambdaAtEdge.distributionID" to be set.'
       )
     })
 
     it('adds valid pending association', function () {
-      functions.someFn.lambdaAtEdge.distributionID = null
-      template.Resources.WebDist = { Type: 'AWS::CloudFront::Distribution' }
+      functions.someFn.lambdaAtEdge.distributionID = 'DDD32FWEF'
 
-      plugin._modifyLambdaFunctions(functions, template)
+      plugin.modifyLambdaFunctions(functions, template)
 
       expect(plugin._pendingAssociations[0]).toEqual({
         fnLogicalName: 'log_id_someFn',
-        distLogicalName: 'WebDist',
-        distributionID: null,
+        distributionID: 'DDD32FWEF',
         fnCurrentVersionOutputName: 'lambda_ver_id_someFn',
         eventType: 'viewer-request'
       })
 
-      expect(plugin._provider.naming.getLambdaLogicalId).toHaveBeenCalledWith(
+      expect(plugin.provider.naming.getLambdaLogicalId).toHaveBeenCalledWith(
         'someFn'
       )
 
       expect(
-        plugin._provider.naming.getLambdaVersionOutputLogicalId
+        plugin.provider.naming.getLambdaVersionOutputLogicalId
       ).toHaveBeenCalledWith('someFn')
     })
 
     it('accepts a distribution Id in place of a Resource distribution', function () {
-      functions.someFn.lambdaAtEdge.distribution = 'ExistingWebDist'
-      plugin._modifyLambdaFunctions(functions, template)
+      plugin.modifyLambdaFunctions(functions, template)
 
       expect(plugin._pendingAssociations[0]).toEqual({
         fnLogicalName: 'log_id_someFn',
-        distLogicalName: 'ExistingWebDist',
         distributionID: '123ABC',
         fnCurrentVersionOutputName: 'lambda_ver_id_someFn',
         eventType: 'viewer-request'
@@ -242,7 +226,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
           MY_FIRST_ENV_VAR: 'yay'
         }
       }
-      plugin._modifyLambdaFunctions(functions, template)
+      plugin.modifyLambdaFunctions(functions, template)
       expect(
         template.Resources.log_id_someFn.Properties.Environment
       ).toBeUndefined()
@@ -254,183 +238,145 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
   })
 
-  describe('_getDistributionPhysicalIDs()', function () {
-    it('does not call describeStackResource if all pending contain distributionIDs', function () {
+  describe('getDistributionPhysicalIDs()', function () {
+    it('adds distribution id by logical function name', () => {
       plugin._pendingAssociations = [
         {
           fnLogicalName: 'some-fn1',
-          distLogicalName: 'WebDist1',
           distributionID: 'ABC'
         },
         {
           fnLogicalName: 'some-fn2',
-          distLogicalName: 'WebDist2',
           distributionID: 'DEF'
         }
       ]
-      return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).toEqual({
-          'some-fn1': {
-            distLogicalName: 'WebDist1',
-            distributionID: 'ABC'
-          },
-          'some-fn2': {
-            distLogicalName: 'WebDist2',
-            distributionID: 'DEF'
-          }
-        })
-        expect(plugin._provider.request).not.toHaveBeenCalled()
-      })
-    })
 
-    it('gets physical id from stack', function () {
-      plugin._pendingAssociations = [
-        {
-          fnLogicalName: 'some-fn1',
-          distLogicalName: 'WebDist',
-          distributionID: null
-        }
-      ]
-
-      plugin._provider.request.mockResolvedValueOnce({
-        StackResources: [
-          {
-            LogicalResourceId: 'WebDist',
-            PhysicalResourceId: 'ABC123'
-          }
-        ]
-      })
-
-      // plugin._provider.request.withArgs('CloudFormation', 'describeStackResources', { StackName: 'some-stack' })
-      //   .resolves()
-
-      return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).toEqual({
-          'some-fn1': {
-            distLogicalName: 'WebDist',
-            distributionID: 'ABC123'
-          }
-        })
-
-        expect(plugin._provider.request).toHaveBeenCalledWith(
-          'CloudFormation',
-          'describeStackResources',
-          { StackName: 'some-stack' }
-        )
-      })
-    })
-
-    it('does not call describeStackResource if same dist logical name and dist id are the same for all pending associations', function () {
-      plugin._pendingAssociations = [
-        {
-          fnLogicalName: 'some-fn1',
-          distLogicalName: 'WebDist1',
+      expect(plugin.getDistributionPhysicalIDs()).toEqual({
+        'some-fn1': {
           distributionID: 'ABC'
         },
+        'some-fn2': {
+          distributionID: 'DEF'
+        }
+      })
+      expect(plugin.provider.request).not.toHaveBeenCalled()
+    })
+
+    it('returns an empty object if no distributionID', () => {
+      plugin._pendingAssociations = [
         {
-          fnLogicalName: 'some-fn2',
-          distLogicalName: 'WebDist1',
-          distributionID: 'ABC'
+          fnLogicalName: 'some-fn1'
         }
       ]
-      return plugin._getDistributionPhysicalIDs().then(function (dists) {
-        expect(dists).toEqual({
-          'some-fn1': {
-            distLogicalName: 'WebDist1',
-            distributionID: 'ABC'
-          },
-          'some-fn2': {
-            distLogicalName: 'WebDist1',
-            distributionID: 'ABC'
-          }
-        })
-        expect(plugin._provider.request).not.toHaveBeenCalled()
-      })
+      expect(plugin.getDistributionPhysicalIDs()).toEqual({})
     })
   })
 
-  describe('_onBeforeDeployFinalize', () => {
+  describe('onBeforeDeployFinalize', () => {
     beforeEach(() => {
       plugin._pendingAssociations = []
-      plugin._getFunctionsToAssociate = jest.fn().mockResolvedValue({
-        WebDist1: [
+      plugin.getFunctionsToAssociate = jest.fn().mockResolvedValue({
+        ABC444: [
           {
             eventType: 'viewer-request',
-            fnARN: 'web-dist1-arn'
+            fnARN: 'some-fn1-arn'
           }
         ]
       })
 
-      plugin._getDistributionPhysicalIDs = jest.fn().mockResolvedValue({
+      plugin.getDistributionPhysicalIDs = jest.fn().mockResolvedValue({
         'some-fn1': {
-          distLogicalName: 'WebDist1',
-          distributionID: 'ABC'
+          distributionID: 'ABC444'
         }
       })
 
-      plugin._updateDistributionsAsNecessary = jest.fn().mockResolvedValue()
+      plugin.updateDistributionsAsNecessary = jest.fn().mockResolvedValue()
     })
 
     it('returns if no pending associations', async () => {
-      await plugin._onBeforeDeployFinalize()
-      expect(plugin._getFunctionsToAssociate).not.toHaveBeenCalled()
+      await plugin.onBeforeDeployFinalize()
+      expect(plugin.getFunctionsToAssociate).not.toHaveBeenCalled()
     })
 
     it('updates pending associations', async () => {
       plugin._pendingAssociations = [
         {
           fnLogicalName: 'some-fn1',
-          distLogicalName: 'WebDist1',
-          distributionID: 'ABC'
+          distributionID: 'ABC444'
         }
       ]
-      await plugin._onBeforeDeployFinalize()
+      await plugin.onBeforeDeployFinalize()
 
-      expect(plugin._getFunctionsToAssociate).toHaveBeenCalledTimes(1)
-      expect(plugin._getDistributionPhysicalIDs).toHaveBeenCalledTimes(1)
-      expect(plugin._updateDistributionsAsNecessary).toHaveBeenCalledWith(
+      expect(plugin.getFunctionsToAssociate).toHaveBeenCalledTimes(1)
+      expect(plugin.getDistributionPhysicalIDs).toHaveBeenCalledTimes(1)
+      expect(plugin.updateDistributionsAsNecessary).toHaveBeenCalledWith(
         {
-          WebDist1: [
+          ABC444: [
             {
               eventType: 'viewer-request',
-              fnARN: 'web-dist1-arn'
+              fnARN: 'some-fn1-arn'
             }
           ]
         },
         {
           'some-fn1': {
-            distLogicalName: 'WebDist1',
-            distributionID: 'ABC'
+            distributionID: 'ABC444'
           }
         }
       )
     })
+
+    it('pluralizes message', async () => {
+      plugin._pendingAssociations = [
+        {
+          fnLogicalName: 'some-fn1',
+          distributionID: 'ABC'
+        },
+        {
+          fnLogicalName: 'some-fn2',
+          distributionID: 'ABC'
+        }
+      ]
+      await plugin.onBeforeDeployFinalize()
+      expect(stubbedSls.cli.log).toHaveBeenCalledWith(
+        'Checking to see if 2 functions need to be associated to CloudFront.'
+      )
+    })
+
+    /// making sure it returns a promise
+    it('resolves undefined if no pending associations', () => {
+      plugin._pendingAssociations = []
+      return plugin.onBeforeDeployFinalize().then((res) => {
+        expect(res).toBeUndefined()
+        expect(plugin.getFunctionsToAssociate).not.toHaveBeenCalled()
+        expect(plugin.getDistributionPhysicalIDs).not.toHaveBeenCalled()
+      })
+    })
   })
 
-  describe('_updateDistributionAsNecessary', () => {
+  describe('updateDistributionAsNecessary', () => {
     let _dist
     beforeEach(() => {
       _dist = {
-        distLogicalName: 'WebDist1',
         distributionID: '123ABC'
       }
       functions = {
-        WebDist1: [
+        '123ABC': [
           {
             eventType: 'viewer-request',
             fnARN: 'web-dist1-arn'
           }
         ]
       }
-      plugin._provider.request
+      plugin.provider.request
         .mockResolvedValueOnce({
           Distribution: {
             Status: 'Deploying'
           }
         })
         .mockResolvedValueOnce()
-      plugin._modifyDistributionConfigIfNeeded = jest.fn().mockReturnValue(true)
-      plugin._waitForDistributionDeployed = jest.fn().mockResolvedValue({
+      plugin.modifyDistributionConfigIfNeeded = jest.fn().mockReturnValue(true)
+      plugin.waitForDistributionDeployed = jest.fn().mockResolvedValue({
         Distribution: {
           Status: 'Deployed',
           DistributionConfig: {
@@ -442,8 +388,8 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
 
     it('update distribution if config changed', async () => {
-      await plugin._updateDistributionAsNecessary(functions, _dist)
-      expect(plugin._provider.request).toHaveBeenCalledWith(
+      await plugin.updateDistributionAsNecessary(functions, _dist)
+      expect(plugin.provider.request).toHaveBeenCalledWith(
         'CloudFront',
         'getDistribution',
         {
@@ -451,16 +397,13 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         }
       )
 
-      expect(plugin._waitForDistributionDeployed).toHaveBeenCalledWith(
-        _dist.distributionID,
-        _dist.distLogicalName
+      expect(plugin.waitForDistributionDeployed).toHaveBeenCalledWith(
+        _dist.distributionID
       )
 
-      expect(plugin._alreadyWaitingForUpdates).toContain(
-        _dist.distributionID + _dist.distLogicalName
-      )
+      expect(plugin._alreadyWaitingForUpdates).toContain(_dist.distributionID)
 
-      expect(plugin._provider.request).toHaveBeenCalledWith(
+      expect(plugin.provider.request).toHaveBeenCalledWith(
         'CloudFront',
         'updateDistribution',
         {
@@ -472,18 +415,18 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         }
       )
 
-      expect(plugin._waitForDistributionDeployed).toHaveBeenCalledTimes(2)
+      expect(plugin.waitForDistributionDeployed).toHaveBeenCalledTimes(2)
     })
 
     it('skips updates if not changed', async () => {
-      plugin._modifyDistributionConfigIfNeeded.mockReturnValue(false)
-      plugin._provider.request = jest.fn().mockResolvedValueOnce({
+      plugin.modifyDistributionConfigIfNeeded.mockReturnValue(false)
+      plugin.provider.request = jest.fn().mockResolvedValueOnce({
         Distribution: {
           Status: 'Deployed'
         }
       })
-      await plugin._updateDistributionAsNecessary(functions, _dist)
-      expect(plugin._provider.request).toHaveBeenCalledWith(
+      await plugin.updateDistributionAsNecessary(functions, _dist)
+      expect(plugin.provider.request).toHaveBeenCalledWith(
         'CloudFront',
         'getDistribution',
         {
@@ -491,20 +434,19 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         }
       )
 
-      expect(plugin._waitForDistributionDeployed).not.toHaveBeenCalled()
-      expect(plugin._provider.request).toHaveBeenCalledTimes(1)
+      expect(plugin.waitForDistributionDeployed).not.toHaveBeenCalled()
+      expect(plugin.provider.request).toHaveBeenCalledTimes(1)
     })
   })
 
-  describe('_waitForDistributionDeployed', () => {
+  describe('waitForDistributionDeployed', () => {
     let cfWaitForStub
     let cloudFrontStub
     let distPhysicalID
-    let distLogicalName
+
     beforeEach(() => {
       jest.useFakeTimers()
       distPhysicalID = 'success-dist-id'
-      distLogicalName = 'WebDist3'
 
       cfWaitForStub = jest.fn()
 
@@ -517,7 +459,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         }
       })
 
-      plugin._provider.sdk = {
+      plugin.provider.sdk = {
         CloudFront: cloudFrontStub
       }
     })
@@ -529,26 +471,18 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     it('returns if already waiting', async () => {
       plugin._distIdIsWaiting = distPhysicalID
       expect(
-        await plugin._waitForDistributionDeployed(
-          distPhysicalID,
-          distLogicalName
-        )
+        await plugin.waitForDistributionDeployed(distPhysicalID)
       ).toBeUndefined()
       expect(cloudFrontStub).not.toHaveBeenCalled()
       expect(stubbedSls.cli.log).not.toHaveBeenCalled()
     })
 
     it('prints out status', async () => {
-      const prom = plugin._waitForDistributionDeployed(
-        distPhysicalID,
-        distLogicalName
-      )
+      const prom = plugin.waitForDistributionDeployed(distPhysicalID)
       expect(cloudFrontStub).toHaveBeenCalledWith({ aws: 'creds' })
       jest.advanceTimersByTime(1000)
       expect(stubbedSls.cli.log).toHaveBeenCalledWith(
-        'Waiting for CloudFront distribution "' +
-          distLogicalName +
-          '" to be deployed'
+        `Waiting for CloudFront distribution "${distPhysicalID}" to be deployed`
       )
       expect(stubbedSls.cli.log).toHaveBeenCalledTimes(2)
       expect(stubbedSls.cli.printDot).toHaveBeenCalledTimes(1)
@@ -581,69 +515,78 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
 
     it('rejects on error', async () => {
-      const prom = plugin._waitForDistributionDeployed(
-        distPhysicalID,
-        distLogicalName
-      )
+      const prom = plugin.waitForDistributionDeployed(distPhysicalID)
 
       cloudFrontStub.__callback(new Error('AWS Timeout'))
       await expect(prom).rejects.toThrow('AWS Timeout')
     })
   })
 
-  describe('_updateDistributionsAsNecessary', () => {
+  describe('updateDistributionsAsNecessary', () => {
     beforeEach(() => {
-      plugin._updateDistributionAsNecessary = jest.fn().mockResolvedValue()
+      plugin.updateDistributionAsNecessary = jest.fn().mockResolvedValue()
     })
 
     it('updates each distribution sequentially', async () => {
       const _dists = {
         fn1: {
-          distributionID: 'WebDist5',
-          distLogicalName: 'blah'
+          distributionID: 'FGE444',
+          fnARN: 'fn2-arn'
         },
         fn2: {
-          distributionID: 'WebDist5',
-          distLogicalName: 'blah'
+          distributionID: 'FGE444',
+          fnARN: 'fn2-arn'
         }
       }
-      await plugin._updateDistributionsAsNecessary(functions, _dists)
-      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledTimes(2)
-      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledWith(
+      await plugin.updateDistributionsAsNecessary(functions, _dists)
+      expect(plugin.updateDistributionAsNecessary).toHaveBeenCalledTimes(2)
+      expect(plugin.updateDistributionAsNecessary).toHaveBeenCalledWith(
         functions,
         _dists.fn1
       )
-      expect(plugin._updateDistributionAsNecessary).toHaveBeenCalledWith(
+      expect(plugin.updateDistributionAsNecessary).toHaveBeenCalledWith(
         functions,
         _dists.fn2
       )
     })
   })
 
-  describe('_getFunctionsToAssociate', () => {
+  describe('getFunctionsToAssociate', () => {
     beforeEach(() => {
-      plugin._provider.request = jest.fn(async (awsSvc, awsSvcMethod, args) => {
-        if (
-          awsSvc === 'CloudFormation' &&
-          awsSvcMethod === 'describeStacks' &&
-          args.StackName === 'some-stack'
-        ) {
-          return {
-            Stacks: [
-              {
-                StackName: 'some-stack',
-                Outputs: [
-                  {
-                    OutputKey: 'LambdaFnArn',
-                    OutputValue: 'aws:lambda:34234:arn:fn'
-                  },
-                  {
-                    OutputKey: 'LambdaFn2Arn',
-                    OutputValue: 'aws:lambda:34234:arn:fn2'
-                  }
-                ]
-              }
-            ]
+      plugin.provider.request = jest.fn(async (awsSvc, awsSvcMethod, args) => {
+        if (awsSvc === 'CloudFormation' && awsSvcMethod === 'describeStacks') {
+          if (args.StackName === 'some-stack') {
+            return {
+              Stacks: [
+                {
+                  StackName: 'some-stack',
+                  Outputs: [
+                    {
+                      OutputKey: 'LambdaFnArn',
+                      OutputValue: 'aws:lambda:34234:arn:fn'
+                    },
+                    {
+                      OutputKey: 'LambdaFn2Arn',
+                      OutputValue: 'aws:lambda:34234:arn:fn2'
+                    }
+                  ]
+                }
+              ]
+            }
+          } else if (args.StackName === 'stack-missing-output') {
+            return {
+              Stacks: [
+                {
+                  StackName: 'stack-missing-output',
+                  Outputs: [
+                    {
+                      OutputKey: 'LambdaFnArn',
+                      OutputValue: 'aws:lambda:34234:arn:fn'
+                    }
+                  ]
+                }
+              ]
+            }
           }
         }
 
@@ -658,19 +601,19 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
         {
           fnCurrentVersionOutputName: 'LambdaFnArn',
           fnLogicalName: 'a-fn1',
-          distLogicalName: 'MyWebDist',
+          distributionID: 'DEFFED2222',
           eventType: 'viewer-request'
         },
         {
           fnCurrentVersionOutputName: 'LambdaFn2Arn',
           fnLogicalName: 'a-fn2',
-          distLogicalName: 'MyWebDist',
+          distributionID: 'DEFFED2222',
           eventType: 'viewer-response'
         }
       ]
 
-      await expect(plugin._getFunctionsToAssociate()).resolves.toEqual({
-        MyWebDist: [
+      await expect(plugin.getFunctionsToAssociate()).resolves.toEqual({
+        DEFFED2222: [
           {
             eventType: 'viewer-request',
             fnARN: 'aws:lambda:34234:arn:fn'
@@ -684,18 +627,41 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     })
 
     it('rejects if stack not found', async () => {
-      plugin._provider.naming.getStackName.mockReturnValue('another-stack')
-      await expect(plugin._getFunctionsToAssociate()).rejects.toThrow(
+      plugin.provider.naming.getStackName.mockReturnValue('another-stack')
+      await expect(plugin.getFunctionsToAssociate()).rejects.toThrow(
         `CloudFormation did not return a stack with name "another-stack"`
+      )
+    })
+
+    it('rejects if output not found in stack', async () => {
+      plugin._pendingAssociations = [
+        {
+          fnCurrentVersionOutputName: 'LambdaFnArnMissing',
+          fnLogicalName: 'a-fn1',
+          distributionID: 'DEFFED2222',
+          eventType: 'viewer-request'
+        },
+        {
+          fnCurrentVersionOutputName: 'LambdaFn2Arn',
+          fnLogicalName: 'a-fn2',
+          distributionID: 'DEFFED2222',
+          eventType: 'viewer-response'
+        }
+      ]
+      plugin.provider.naming.getStackName.mockReturnValue(
+        'stack-missing-output'
+      )
+      await expect(plugin.getFunctionsToAssociate()).rejects.toThrow(
+        `Stack "stack-missing-output" did not have an output with name "LambdaFnArnMissing"`
       )
     })
   })
 
-  describe('_modifyDistributionConfigIfNeeded', () => {
+  describe('modifyDistributionConfigIfNeeded', () => {
     let distConfig
     let moddedFns
     beforeEach(() => {
-      // This is generated by `_getFunctionsToAssociate()`
+      // This is generated by `getFunctionsToAssociate()`
       moddedFns = [
         {
           eventType: 'viewer-request',
@@ -734,7 +700,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
     describe('returns true', () => {
       it('modifies default cache behavior', () => {
         expect(
-          plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+          plugin.modifyDistributionConfigIfNeeded(distConfig, moddedFns)
         ).toBe(true)
 
         expect(
@@ -792,7 +758,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
           }
         }
         expect(
-          plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+          plugin.modifyDistributionConfigIfNeeded(distConfig, moddedFns)
         ).toBe(true)
 
         expect(
@@ -858,7 +824,7 @@ describe('serverless-plugin-cloudfront-lambda-edge', function () {
       }
 
       expect(
-        plugin._modifyDistributionConfigIfNeeded(distConfig, moddedFns)
+        plugin.modifyDistributionConfigIfNeeded(distConfig, moddedFns)
       ).toBe(false)
     })
   })

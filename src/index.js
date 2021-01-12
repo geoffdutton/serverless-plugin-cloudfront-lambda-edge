@@ -9,29 +9,29 @@ const VALID_EVENT_TYPES = [
 
 class ServerlessPluginExistingCloudFrontLambdaEdge {
   constructor(serverless, opts) {
-    this._serverless = serverless
-    this._provider = serverless ? serverless.getProvider('aws') : null
+    this.serverless = serverless
+    this.provider = serverless.getProvider('aws')
     this._opts = opts
-    if (!this._provider) {
-      throw new Error('This plugin must be used with AWS')
+    if (!this.provider) {
+      throw new Error('This plugin must be used with AWS.')
     }
 
     this._alreadyWaitingForUpdates = new Set()
     this._distIdIsWaiting = null
 
     this.hooks = {
-      'aws:package:finalize:mergeCustomProviderResources': this._onPackageCustomResources.bind(
+      'aws:package:finalize:mergeCustomProviderResources': this.onPackageCustomResources.bind(
         this
       ),
-      'before:deploy:finalize': this._onBeforeDeployFinalize.bind(this)
+      'before:deploy:finalize': this.onBeforeDeployFinalize.bind(this)
     }
   }
 
-  _onPackageCustomResources() {
-    this._modifyTemplate()
+  onPackageCustomResources() {
+    this.modifyTemplate()
   }
 
-  _onBeforeDeployFinalize() {
+  async onBeforeDeployFinalize() {
     const cnt = this._pendingAssociations.length
 
     if (cnt === 0) {
@@ -42,38 +42,37 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
      * Each entry in the this._pendingAssociations array looks like this:
      * {
      *    "fnLogicalName": "YourFnNameLambdaFunction",
-     *    "distLogicalName": "WebsiteDistribution",
+     *    "distributionID": "EXISTINGDISTID",
      *    "fnCurrentVersionOutputName": "YourFnNameLambdaFunctionQualifiedArn",
      *    "eventType": "origin-request",
      * }
      */
 
-    this._serverless.cli.log(
-      'Checking to see if ' +
-        cnt +
-        (cnt > 1 ? ' functions need ' : ' function needs ') +
-        'to be associated to CloudFront'
+    this.serverless.cli.log(
+      `Checking to see if ${cnt}${
+        cnt > 1 ? ' functions need ' : ' function needs '
+      }to be associated to CloudFront.`
     )
 
     return Promise.all([
-      this._getFunctionsToAssociate(),
-      this._getDistributionPhysicalIDs()
-    ]).then(([fns, dist]) => this._updateDistributionsAsNecessary(fns, dist))
+      this.getFunctionsToAssociate(),
+      this.getDistributionPhysicalIDs()
+    ]).then(([fns, dist]) => this.updateDistributionsAsNecessary(fns, dist))
   }
 
-  _modifyTemplate() {
-    const template = this._serverless.service.provider
+  modifyTemplate() {
+    const template = this.serverless.service.provider
       .compiledCloudFormationTemplate
 
-    this._modifyExecutionRole(template)
-    this._modifyLambdaFunctions(this._serverless.service.functions, template)
+    this.modifyExecutionRole(template)
+    this.modifyLambdaFunctions(this.serverless.service.functions, template)
   }
 
-  _modifyExecutionRole(template) {
+  modifyExecutionRole(template) {
     let assumeRoleUpdated = false
 
     if (!_.get(template, 'Resources.IamRoleLambdaExecution')) {
-      this._serverless.cli.log(
+      this.serverless.cli.log(
         'WARNING: no IAM role for Lambda execution found - can not modify assume role policy'
       )
       return
@@ -90,7 +89,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
         ) {
           svc.push('edgelambda.amazonaws.com')
           assumeRoleUpdated = true
-          this._serverless.cli.log(
+          this.serverless.cli.log(
             'Updated Lambda assume role policy to allow Lambda@Edge to assume the role'
           )
         }
@@ -120,13 +119,13 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     )
 
     if (!assumeRoleUpdated) {
-      this._serverless.cli.log(
+      this.serverless.cli.log(
         'WARNING: was unable to update the Lambda assume role policy to allow Lambda@Edge to assume the role'
       )
     }
   }
 
-  _modifyLambdaFunctions(functions, template) {
+  modifyLambdaFunctions(functions, template) {
     this._pendingAssociations = _.chain(functions)
       .reduce((memo, fnDef, fnName) => {
         if (!fnDef.lambdaAtEdge) {
@@ -134,46 +133,28 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
         }
 
         const distId = fnDef.lambdaAtEdge.distributionID || null
-        const distName = fnDef.lambdaAtEdge.distribution || null
+        // const distName = fnDef.lambdaAtEdge.distribution || null
         const evtType = fnDef.lambdaAtEdge.eventType
-        const dist = template.Resources[distName]
+        // const dist = template.Resources[distName]
 
         if (!VALID_EVENT_TYPES.includes(evtType)) {
           throw new Error(
-            '"' +
-              evtType +
-              '" is not a valid event type, must be one of: ' +
-              VALID_EVENT_TYPES.join(', ')
+            `"${evtType}" is not a valid event type, must be one of: ${VALID_EVENT_TYPES.join(
+              ', '
+            )}`
           )
         }
 
-        if (!dist && !distId) {
+        if (!distId) {
           throw new Error(
-            'Could not find resource with logical name "' +
-              distName +
-              '" or there is no distributionID set'
-          )
-        }
-
-        if (!distName && distId) {
-          throw new Error(
-            'Distribution ID "' + distId + '" requires a distribution to be set'
-          )
-        }
-
-        if (!distId && dist.Type !== 'AWS::CloudFront::Distribution') {
-          throw new Error(
-            'Resource with logical name "' +
-              distName +
-              '" is not type AWS::CloudFront::Distribution'
+            'This plugin requires "lambdaAtEdge.distributionID" to be set.'
           )
         }
 
         memo.push({
-          fnLogicalName: this._provider.naming.getLambdaLogicalId(fnName),
+          fnLogicalName: this.provider.naming.getLambdaLogicalId(fnName),
           distributionID: distId,
-          distLogicalName: distName,
-          fnCurrentVersionOutputName: this._provider.naming.getLambdaVersionOutputLogicalId(
+          fnCurrentVersionOutputName: this.provider.naming.getLambdaVersionOutputLogicalId(
             fnName
           ),
           eventType: evtType
@@ -185,12 +166,12 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
         const fnProps = template.Resources[fn.fnLogicalName].Properties
 
         if (fnProps && fnProps.Environment && fnProps.Environment.Variables) {
-          this._serverless.cli.log(
-            'Removing ' +
-              Object.keys(fnProps.Environment.Variables).length +
-              ' environment variables from function "' +
-              fn.fnLogicalName +
-              '" because Lambda@Edge does not support environment variables'
+          this.serverless.cli.log(
+            `Removing ${
+              Object.keys(fnProps.Environment.Variables).length
+            } environment variables from function "${
+              fn.fnLogicalName
+            }" because Lambda@Edge does not support environment variables`
           )
 
           delete fnProps.Environment
@@ -199,18 +180,18 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
       .value()
   }
 
-  async _updateDistributionsAsNecessary(fns, dists) {
+  async updateDistributionsAsNecessary(fns, dists) {
     // Need to do this sequentially otherwise AWS might throw an error like:
     //
     // ServerlessError: The request failed because it didn't meet
     // the preconditions in one or more request-header fields.
     const distKeys = Object.keys(dists)
     for (const distKey of distKeys) {
-      await this._updateDistributionAsNecessary(fns, dists[distKey])
+      await this.updateDistributionAsNecessary(fns, dists[distKey])
     }
   }
 
-  async _waitForDistributionDeployed(distPhysicalID, distLogicalName) {
+  async waitForDistributionDeployed(distPhysicalID) {
     let dotPrinted = false
     let running = true
 
@@ -218,8 +199,8 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
       return
     }
 
-    const cloudfront = new this._provider.sdk.CloudFront(
-      this._provider.getCredentials()
+    const cloudfront = new this.provider.sdk.CloudFront(
+      this.provider.getCredentials()
     )
     this._distIdIsWaiting = distPhysicalID
 
@@ -228,15 +209,13 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
       clearTimeout(timeoutId)
       if (running) {
         if (!dotPrinted) {
-          this._serverless.cli.log(
-            'Waiting for CloudFront distribution "' +
-              distLogicalName +
-              '" to be deployed'
+          this.serverless.cli.log(
+            `Waiting for CloudFront distribution "${distPhysicalID}" to be deployed`
           )
-          this._serverless.cli.log('This can take awhile.')
+          this.serverless.cli.log('This can take awhile.')
           dotPrinted = true
         }
-        this._serverless.cli.printDot()
+        this.serverless.cli.printDot()
         timeoutId = setTimeout(dotPrinter, 2000)
       }
     }
@@ -255,14 +234,10 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
           running = false
           if (dotPrinted) {
             // we have printed a dot, so clear the line
-            this._serverless.cli.consoleLog('')
+            this.serverless.cli.consoleLog('')
           }
-          this._serverless.cli.log(
-            'Distribution "' +
-              distLogicalName +
-              '" is now in "' +
-              data.Distribution.Status +
-              '" state'
+          this.serverless.cli.log(
+            `Distribution "${distPhysicalID}" is now in "${data.Distribution.Status}" state`
           )
           resolve(data)
         }
@@ -270,23 +245,19 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     })
   }
 
-  async _updateDistributionAsNecessary(fns, dist) {
+  async updateDistributionAsNecessary(fns, dist) {
     const distID = dist.distributionID
-    const distName = dist.distLogicalName
 
-    let data = await this._provider.request('CloudFront', 'getDistribution', {
+    let data = await this.provider.request('CloudFront', 'getDistribution', {
       Id: distID
     })
 
     if (data.Distribution.Status !== 'Deployed') {
-      data = await this._waitForDistributionDeployed(distID, distName)
+      data = await this.waitForDistributionDeployed(distID)
     }
 
     const config = data.Distribution.DistributionConfig
-    const changed = this._modifyDistributionConfigIfNeeded(
-      config,
-      fns[distName]
-    )
+    const changed = this.modifyDistributionConfigIfNeeded(config, fns[distID])
     const updateParams = {
       Id: distID,
       DistributionConfig: config,
@@ -294,35 +265,33 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     }
 
     if (changed) {
-      this._alreadyWaitingForUpdates.add(distID + distName)
-      this._serverless.cli.log(
+      this._alreadyWaitingForUpdates.add(distID)
+      this.serverless.cli.log(
         'Updating distribution "' +
-          distName +
+          distID +
           '" because we updated Lambda@Edge associations on it'
       )
-      return this._provider
+      return this.provider
         .request('CloudFront', 'updateDistribution', updateParams)
-        .then(() => this._waitForDistributionDeployed(distID, distName))
+        .then(() => this.waitForDistributionDeployed(distID))
         .then(() => {
-          this._serverless.cli.log(
-            'Done updating distribution "' + distName + '"'
-          )
+          this.serverless.cli.log('Done updating distribution "' + distID + '"')
         })
     }
 
-    this._serverless.cli.log(
+    this.serverless.cli.log(
       'The distribution is already configured with the current versions of each Lambda@Edge function it needs'
     )
   }
 
-  _modifyDistributionConfigIfNeeded(distConfig, fns) {
-    let changed = this._associateFunctionsToBehavior(
+  modifyDistributionConfigIfNeeded(distConfig, fns) {
+    let changed = this.associateFunctionsToBehavior(
       distConfig.DefaultCacheBehavior,
       fns
     )
 
     _.each(distConfig.CacheBehaviors.Items, (beh) => {
-      const behaviorChanged = this._associateFunctionsToBehavior(beh, fns)
+      const behaviorChanged = this.associateFunctionsToBehavior(beh, fns)
 
       changed = changed || behaviorChanged
     })
@@ -330,7 +299,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     return changed
   }
 
-  _associateFunctionsToBehavior(beh, fns) {
+  associateFunctionsToBehavior(beh, fns) {
     let changed = false
 
     fns.forEach((fn) => {
@@ -339,7 +308,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
       })
 
       if (!existing) {
-        this._serverless.cli.log(
+        this.serverless.cli.log(
           'Adding new Lamba@Edge association for ' +
             fn.eventType +
             ': ' +
@@ -351,7 +320,7 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
         })
         changed = true
       } else if (existing.LambdaFunctionARN !== fn.fnARN) {
-        this._serverless.cli.log(
+        this.serverless.cli.log(
           'Updating ' +
             fn.eventType +
             ' to use ' +
@@ -373,107 +342,57 @@ class ServerlessPluginExistingCloudFrontLambdaEdge {
     return changed
   }
 
-  _getFunctionsToAssociate() {
-    const stackName = this._provider.naming.getStackName()
+  getFunctionsToAssociate() {
+    const stackName = this.provider.naming.getStackName()
 
-    return this._provider
+    return this.provider
       .request('CloudFormation', 'describeStacks', { StackName: stackName })
       .then((resp) => {
-        const stack = _.find(resp.Stacks, { StackName: stackName })
+        const stack = resp.Stacks.find(
+          ({ StackName }) => StackName === stackName
+        )
 
         if (!stack) {
           throw new Error(
-            'CloudFormation did not return a stack with name "' +
-              stackName +
-              '"'
+            `CloudFormation did not return a stack with name "${stackName}"`
           )
         }
 
-        return _.reduce(
-          this._pendingAssociations,
-          (memo, pending) => {
-            const outputName = pending.fnCurrentVersionOutputName
-            const output = _.find(stack.Outputs, { OutputKey: outputName })
+        return this._pendingAssociations.reduce((memo, pending) => {
+          const outputName = pending.fnCurrentVersionOutputName
+          const output = stack.Outputs.find(
+            ({ OutputKey }) => OutputKey === outputName
+          )
 
-            if (!output) {
-              throw new Error(
-                'Stack "' +
-                  stackName +
-                  '" did not have an output with name "' +
-                  outputName +
-                  '"'
-              )
-            }
+          if (!output) {
+            throw new Error(
+              `Stack "${stackName}" did not have an output with name "${outputName}"`
+            )
+          }
 
-            if (!memo[pending.distLogicalName]) {
-              memo[pending.distLogicalName] = []
-            }
+          if (!memo[pending.distributionID]) {
+            memo[pending.distributionID] = []
+          }
 
-            memo[pending.distLogicalName].push({
-              eventType: pending.eventType,
-              fnARN: output.OutputValue
-            })
+          memo[pending.distributionID].push({
+            eventType: pending.eventType,
+            fnARN: output.OutputValue
+          })
 
-            return memo
-          },
-          {}
-        )
+          return memo
+        }, {})
       })
   }
 
-  async _getDistributionPhysicalIDs() {
-    const stackName = this._provider.naming.getStackName()
-    const existingDistIds = _.reduce(
-      this._pendingAssociations,
-      (memo, pending) => {
-        if (pending.distributionID) {
-          memo[pending.fnLogicalName] = {
-            distributionID: pending.distributionID,
-            distLogicalName: pending.distLogicalName
-          }
+  getDistributionPhysicalIDs() {
+    return this._pendingAssociations.reduce((memo, pending) => {
+      if (pending.distributionID) {
+        memo[pending.fnLogicalName] = {
+          distributionID: pending.distributionID
         }
-        return memo
-      },
-      {}
-    )
-
-    // If they all had distributionIDs, no reason to query CloudFormation
-    if (_.size(existingDistIds) === this._pendingAssociations.length) {
-      return existingDistIds
-    }
-
-    return this._provider
-      .request('CloudFormation', 'describeStackResources', {
-        StackName: stackName
-      })
-      .then((resp) => {
-        return _.reduce(
-          this._pendingAssociations,
-          (memo, pending) => {
-            const resource = _.find(resp.StackResources, {
-              LogicalResourceId: pending.distLogicalName
-            })
-
-            if (!resource) {
-              throw new Error(
-                'Stack "' +
-                  stackName +
-                  '" did not have a resource with logical name "' +
-                  pending.distLogicalName +
-                  '"'
-              )
-            }
-
-            memo[pending.fnLogicalName] = {
-              distributionID: resource.PhysicalResourceId,
-              distLogicalName: pending.distLogicalName
-            }
-
-            return memo
-          },
-          {}
-        )
-      })
+      }
+      return memo
+    }, {})
   }
 }
 

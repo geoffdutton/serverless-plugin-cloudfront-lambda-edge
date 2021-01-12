@@ -9,7 +9,7 @@
     "tdd": "jest --watch",
     "lint": "eslint . examples/**/*.js src/**/*.js"
   },
-  "author": "Jeremy Thomerson",
+  "author": "Geoff Dutton <g.dutton@gmail.com>",
   "license": "MIT",
   "repository": {
     "type": "git",

@@ -2,3 +2,4 @@
 node_modules
 coverage
 .serverless
+/examples/existing-s3-cloudfront/logs/
