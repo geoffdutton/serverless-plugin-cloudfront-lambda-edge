@@ -3,6 +3,12 @@
   "version": "2.0.0",
   "description": "Plugin for the Serverless v2.x to provide support for Lambda@Edge for existing CloudFront Distributions",
   "main": "src/index.js",
+  "files": [
+    "src/index.js",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md"
+  ],
   "scripts": {
     "coveralls": "coveralls < ./coverage/lcov.info",
     "test": "jest --coverage",
