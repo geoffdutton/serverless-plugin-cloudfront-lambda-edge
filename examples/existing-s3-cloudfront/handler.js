@@ -13,6 +13,13 @@ module.exports = {
         value: 'Existing s3 bucket/cloudfront'
       }
     ]
+
+    headers['referrer-policy'] = [
+      {
+        key: 'Referrer-Policy',
+        value: 'unsafe-url'
+      }
+    ]
     //
     // headers['x-country-code'] = [
     //   {
@@ -47,5 +54,26 @@ module.exports = {
     ]
 
     return response
+  },
+
+  async rewriteOrigin(event, context) {
+    console.log(JSON.stringify({ context, event }, null, 2))
+    const request = event.Records[0].cf.request
+    if (request.uri.endsWith('//')) {
+      const newUri = request.uri.slice(0, -1)
+      const qs = request.querystring ? `?${request.querystring}` : ''
+      request.headers = {
+        location: [
+          {
+            key: 'Location',
+            value: newUri + qs
+          }
+        ]
+      }
+      request.status = 301
+      request.statusDescription = 'Found'
+    }
+    console.log(JSON.stringify({ request }, null, 2))
+    return request
   }
 }

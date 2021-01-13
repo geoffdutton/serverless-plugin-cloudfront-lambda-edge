@@ -51,3 +51,12 @@ functions:
       lambdaAtEdge:
          distributionID: ${self:custom.distributionID}
          eventType: 'viewer-response'
+
+   setOriginUri:
+      name: '${self:custom.stage}-${self:service}-origin-request'
+      handler: handler.rewriteOrigin
+      memorySize: 128
+      timeout: 4
+      lambdaAtEdge:
+         distributionID: ${self:custom.distributionID}
+         eventType: 'origin-request'
